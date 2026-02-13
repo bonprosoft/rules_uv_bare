@@ -1,0 +1,46 @@
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_entrypoint", "uv_py_export", "uv_py_import_wheel", "uv_py_lock", "uv_py_test", "uv_py_workspace")
+
+uv_py_import_wheel(
+    name = "lib",
+    src = "//lib:wheel",
+    frozen = False,
+    visibility = ["//:__subpackages__"],
+)
+
+uv_py_workspace(
+    name = "ws",
+    lock = "uv.lock",
+    members = ["//app"],
+    python_requires = ">=3.12",
+)
+
+uv_py_lock(
+    name = "ws.lock",
+    workspace = ":ws",
+)
+
+uv_py_export(
+    name = "ws.export",
+    workspace = ":ws",
+)
+
+uv_py_entrypoint(
+    name = "run",
+    cmd = [
+        "python",
+        "-m",
+        "app",
+    ],
+    workspace = ":ws",
+)
+
+uv_py_test(
+    name = "test",
+    cmd = [
+        "python",
+        "-m",
+        "pytest",
+        "app/tests/",
+    ],
+    workspace = ":ws",
+)

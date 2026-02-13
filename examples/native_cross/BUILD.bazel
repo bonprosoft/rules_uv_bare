@@ -1,0 +1,106 @@
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_export", "uv_py_lock", "uv_py_test", "uv_py_workspace")
+
+# Platform targets
+platform(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+platform(
+    name = "linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+platform(
+    name = "darwin_aarch64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+# Config settings
+config_setting(
+    name = "is_linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "is_linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "is_darwin_aarch64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+uv_py_workspace(
+    name = "ws",
+    lock = "uv.lock",
+    members = ["//app"],
+    python_requires = ">=3.12",
+    target_platforms = {
+        ":linux_x86_64": "platform_machine == 'x86_64' and sys_platform == 'linux'",
+        ":linux_aarch64": "platform_machine == 'aarch64' and sys_platform == 'linux'",
+        ":darwin_aarch64": "platform_machine == 'arm64' and sys_platform == 'darwin'",
+    },
+    wheels = ["//native_lib"],
+)
+
+uv_py_lock(
+    name = "ws.lock",
+    workspace = ":ws",
+)
+
+uv_py_export(
+    name = "ws.export",
+    workspace = ":ws",
+)
+
+uv_py_entrypoint(
+    name = "run",
+    cmd = [
+        "python",
+        "-m",
+        "app",
+    ],
+    workspace = ":ws",
+)
+
+uv_py_test(
+    name = "test",
+    cmd = [
+        "python",
+        "-m",
+        "pytest",
+        "app/tests/",
+    ],
+    workspace = ":ws",
+)
+
+uv_py_deploy(
+    name = "deploy",
+    python_version = "3.12",
+    target_platform = select({
+        ":is_linux_x86_64": "x86_64-manylinux2014",
+        ":is_linux_aarch64": "aarch64-manylinux2014",
+        ":is_darwin_aarch64": "aarch64-apple-darwin",
+    }),
+    workspace = ":ws",
+)

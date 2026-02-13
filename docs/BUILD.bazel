@@ -1,0 +1,16 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@stardoc//stardoc:stardoc.bzl", "stardoc")
+
+stardoc(
+    name = "rules_doc",
+    out = "rules_generated.md",
+    input = "//uv:defs.bzl",
+    deps = ["//uv:defs"],
+)
+
+diff_test(
+    name = "rules_doc_test",
+    failure_message = "Docs are out-of-date. Please run: ./docs/update.sh",
+    file1 = ":rules_doc",
+    file2 = ":rules.md",
+)

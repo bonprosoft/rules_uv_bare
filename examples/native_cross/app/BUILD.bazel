@@ -1,0 +1,6 @@
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_package")
+
+uv_py_package(
+    name = "app",
+    data = ["app/py.typed"],
+)

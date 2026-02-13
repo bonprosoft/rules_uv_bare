@@ -1,0 +1,50 @@
+load("@nanobind_bazel//:build_defs.bzl", "nanobind_extension")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_import_wheel")
+
+nanobind_extension(
+    name = "_ext",
+    srcs = ["_ext.cpp"],
+)
+
+# Copy .so into native_lib/ so it exists alongside __init__.py in the wheel
+genrule(
+    name = "_ext_pkg",
+    srcs = [":_ext"],
+    outs = ["native_lib/_ext.so"],
+    cmd = "cp $(SRCS) $@",
+)
+
+py_library(
+    name = "native_lib_py",
+    srcs = ["native_lib/__init__.py"],
+    data = ["native_lib/py.typed"],
+    imports = ["."],
+)
+
+filegroup(
+    name = "native_lib_data",
+    srcs = [
+        "native_lib/py.typed",
+    ],
+)
+
+py_wheel(
+    name = "wheel",
+    distribution = "native_lib",
+    strip_path_prefixes = ["native_lib/"],
+    version = "0.0.1",
+    deps = [
+        ":_ext_pkg",
+        ":native_lib_data",
+        ":native_lib_py",
+    ],
+)
+
+uv_py_import_wheel(
+    name = "native_lib",
+    src = ":wheel",
+    frozen = False,
+    visibility = ["//visibility:public"],
+)

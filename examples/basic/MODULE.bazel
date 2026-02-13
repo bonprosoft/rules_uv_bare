@@ -1,0 +1,10 @@
+module(
+    name = "basic_example",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "rules_uv_bare", version = "0.0.1")
+local_path_override(
+    module_name = "rules_uv_bare",
+    path = "../..",
+)

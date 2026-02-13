@@ -1,0 +1,11 @@
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_package", "uv_py_wheel")
+
+uv_py_package(
+    name = "lib",
+    data = ["lib/py.typed"],
+)
+
+uv_py_wheel(
+    name = "wheel",
+    package = "//lib",
+)

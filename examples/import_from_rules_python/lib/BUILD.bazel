@@ -1,0 +1,27 @@
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+
+py_library(
+    name = "lib",
+    srcs = ["lib/__init__.py"],
+    data = ["lib/py.typed"],
+    imports = ["."],
+)
+
+filegroup(
+    name = "py.typed",
+    srcs = ["lib/py.typed"],
+)
+
+py_wheel(
+    name = "wheel",
+    distribution = "lib",
+    python_tag = "py3",
+    strip_path_prefixes = ["lib/"],
+    version = "0.0.1",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":lib",
+        ":py.typed",
+    ],
+)
