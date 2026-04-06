@@ -1,5 +1,8 @@
 """uv_py_entrypoint and uv_py_test macros."""
 
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
 def _uv_py_venv_target(rule_fn, name, workspace, cmd, **kwargs):
     if type(cmd) != "list":
         fail("cmd must be a list of strings. Got: " + type(cmd))
@@ -31,7 +34,7 @@ def uv_py_entrypoint(name, workspace, cmd, **kwargs):
         cmd: command as a list of strings (e.g. ``["python", "script.py"]``).
         **kwargs: additional arguments forwarded to ``sh_binary``.
     """
-    _uv_py_venv_target(native.sh_binary, name, workspace, cmd, **kwargs)
+    _uv_py_venv_target(sh_binary, name, workspace, cmd, **kwargs)
 
 def uv_py_test(name, workspace, cmd, **kwargs):
     """Runs a command in the workspace venv as a test.
@@ -52,4 +55,4 @@ def uv_py_test(name, workspace, cmd, **kwargs):
         **kwargs: additional arguments forwarded to ``sh_test``.
     """
     tags = kwargs.pop("tags", []) + ["local"]
-    _uv_py_venv_target(native.sh_test, name, workspace, cmd, tags = tags, **kwargs)
+    _uv_py_venv_target(sh_test, name, workspace, cmd, tags = tags, **kwargs)

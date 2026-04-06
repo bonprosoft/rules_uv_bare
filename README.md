@@ -260,15 +260,47 @@ See `examples/import_from_rules_python/` for more details.
 
 ## Native build / cross-platform deployment
 
-C++ extensions (e.g. via nanobind or pybind11) can be integrated by building a wheel and importing it into the workspace.
+You can find examples for native build / cross-platform deployment:
+
+- `examples/native/`: first-party native wheel (nanobind) + third-party source build
+- `examples/native_cross/`: same as `native` with cross-platform `target_platforms`
+- `examples/env_provider/`: custom `UvBuildEnvInfo` providers
+
+### First-party native packages
+
+If your Python package requires native compilation (C/C++ extensions), it can be integrated by building a wheel and importing it into the workspace by `uv_py_import_wheel` rule.
+
+### Third-party native packages
+
+When third-party Python packages need native compilation, the build tools must be available during `uv sync`.
+The `env_providers` attribute on `uv_py_workspace` allows you to forward toolchains as environment variables.
+
+For example, a built-in `uv_cc_env` rule resolves the Bazel CC toolchain and provides `CC`, `CXX`, `AR`, `LD`, and `PATH`:
+
+```python
+load("@rules_uv_bare//uv/cc:defs.bzl", "uv_cc_env")
+
+uv_cc_env(name = "cc_env")
+
+uv_py_workspace(
+    name = "ws",
+    env_providers = [":cc_env"],
+    # ...
+)
+```
+
+> **Note:** `uv_cc_env` requires `bazel_dep(name = "rules_cc", ...)` in your `MODULE.bazel`.
+
+You can write custom providers by returning `UvBuildEnvInfo` from a rule (see `examples/env_provider/` for a Cargo/Rust example).
+You can also directly pass `env` attribute to override environment variables statically.
+
+### Cross-platform deployment
 
 When `target_platforms` is passed to `uv_py_workspace`, it creates a single unified `uv.lock` covering all listed platforms (i.e., the same way as uv).
 Internally, it uses Bazel split transitions to build each wheel once per target platform, and writes marker-qualified `[tool.uv.sources]` entries (e.g. `platform_machine == 'x86_64'`) so that uv picks the correct wheel for each platform from one lock file.
 
 Because `uv sync` runs locally, building the workspace target and its sub-targets (`.run`, `.activate`) **only work when the host platform matches the target platform**.
 Other rules, such as `uv_py_lock`, `uv_py_export`, and `uv_py_deploy`, would work on any platform.
-
-See `examples/native` and `examples/native_cross/` for full working examples.
 
 ## Advanced Examples
 

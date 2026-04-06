@@ -2,7 +2,7 @@
 name = "app"
 version = "0.0.1"
 requires-python = ">=3.12"
-dependencies = ["native-lib"]
+dependencies = ["native-lib", "msgpack>=1.1"]
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]

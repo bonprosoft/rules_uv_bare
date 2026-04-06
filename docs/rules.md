@@ -50,6 +50,25 @@ uv_py_import_wheel(
 | <a id="uv_py_import_wheel-python_package_name"></a>python_package_name |  Python package name override. Inferred from the wheel filename if not set. Underscores are normalized to hyphens.   | String | optional |  `""`  |
 
 
+<a id="UvBuildEnvInfo"></a>
+
+## UvBuildEnvInfo
+
+<pre>
+load("@rules_uv_bare//uv:defs.bzl", "UvBuildEnvInfo")
+
+UvBuildEnvInfo(<a href="#UvBuildEnvInfo-env">env</a>)
+</pre>
+
+Environment variables to forward to uv sync and wheel builds.
+
+**FIELDS**
+
+| Name  | Description |
+| :------------- | :------------- |
+| <a id="UvBuildEnvInfo-env"></a>env |  Dict of environment variable name to value    |
+
+
 <a id="UvPyPackageInfo"></a>
 
 ## UvPyPackageInfo
@@ -349,7 +368,8 @@ uv_py_wheel(
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_workspace")
 
 uv_py_workspace(<a href="#uv_py_workspace-name">name</a>, <a href="#uv_py_workspace-members">members</a>, <a href="#uv_py_workspace-lock">lock</a>, <a href="#uv_py_workspace-wheels">wheels</a>, <a href="#uv_py_workspace-target_platforms">target_platforms</a>, <a href="#uv_py_workspace-python_requires">python_requires</a>, <a href="#uv_py_workspace-dependency_groups">dependency_groups</a>,
-                <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-uv_sync_args">uv_sync_args</a>, <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>, <a href="#uv_py_workspace-visibility">visibility</a>)
+                <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-uv_sync_args">uv_sync_args</a>, <a href="#uv_py_workspace-env">env</a>, <a href="#uv_py_workspace-env_inherit">env_inherit</a>, <a href="#uv_py_workspace-env_providers">env_providers</a>,
+                <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>, <a href="#uv_py_workspace-visibility">visibility</a>)
 </pre>
 
 Define and builds a uv workspace from uv_py_package targets.
@@ -386,6 +406,9 @@ uv_py_workspace(
 | <a id="uv_py_workspace-dependency_groups"></a>dependency_groups |  dict of group name to dep list (default ``{"test": ["pytest>=8.0"]}``). Pass ``{}`` to disable.   |  `{"test": ["pytest>=8.0"]}` |
 | <a id="uv_py_workspace-extra_pyproject_content"></a>extra_pyproject_content |  additional TOML content appended verbatim to the generated pyproject.toml (e.g. ``[tool.pytest.ini_options]``).   |  `""` |
 | <a id="uv_py_workspace-uv_sync_args"></a>uv_sync_args |  additional arguments passed to ``uv sync`` (e.g. ``["--index-url", "https://private.pypi.org/simple"]``).   |  `[]` |
+| <a id="uv_py_workspace-env"></a>env |  dict of environment variable name to value, forwarded to ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).   |  `{}` |
+| <a id="uv_py_workspace-env_inherit"></a>env_inherit |  if True, inherit the host shell environment when running ``uv sync``. Prefer ``env_providers`` for reproducible builds.   |  `False` |
+| <a id="uv_py_workspace-env_providers"></a>env_providers |  list of targets providing ``UvBuildEnvInfo``. If the ``env`` attr sets the same variable, it takes precedence.   |  `[]` |
 | <a id="uv_py_workspace-target_compatible_with"></a>target_compatible_with |  standard Bazel ``target_compatible_with`` constraint list. Targets whose platform doesn't satisfy these constraints are skipped. It also applied to the sub-targets.   |  `[]` |
 | <a id="uv_py_workspace-visibility"></a>visibility |  Bazel visibility.   |  `["//visibility:public"]` |
 

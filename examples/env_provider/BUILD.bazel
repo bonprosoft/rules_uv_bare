@@ -1,28 +1,32 @@
-load("@rules_uv_bare//uv:defs.bzl", "uv_py_entrypoint", "uv_py_export", "uv_py_lock", "uv_py_test", "uv_py_workspace")
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_entrypoint", "uv_py_lock", "uv_py_test", "uv_py_workspace")
 load("@rules_uv_bare//uv/cc:defs.bzl", "uv_cc_env")
+load(":cargo_uv_env.bzl", "cargo_uv_env")
 
+# Enable CC toolchain from rules_uv_bare.
 uv_cc_env(name = "cc_env")
+
+# Custom env.
+cargo_uv_env(name = "cargo_env")
 
 uv_py_workspace(
     name = "ws",
-    env_providers = [":cc_env"],
+    env_providers = [
+        ":cc_env",
+        ":cargo_env",
+    ],
     lock = "uv.lock",
     members = ["//app"],
-    python_requires = ">=3.12",
-    # Force msgpack to build from source for demonstration.
+    # Force build msgpack and eclipse-zenoh from source for demonstration.
     uv_sync_args = [
         "--no-binary-package",
         "msgpack",
+        "--no-binary-package",
+        "eclipse-zenoh",
     ],
 )
 
 uv_py_lock(
     name = "ws.lock",
-    workspace = ":ws",
-)
-
-uv_py_export(
-    name = "ws.export",
     workspace = ":ws",
 )
 

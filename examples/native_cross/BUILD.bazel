@@ -1,4 +1,7 @@
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_export", "uv_py_lock", "uv_py_test", "uv_py_workspace")
+load("@rules_uv_bare//uv/cc:defs.bzl", "uv_cc_env")
+
+uv_cc_env(name = "cc_env")
 
 # Platform targets
 platform(
@@ -52,6 +55,7 @@ config_setting(
 
 uv_py_workspace(
     name = "ws",
+    env_providers = [":cc_env"],
     lock = "uv.lock",
     members = ["//app"],
     python_requires = ">=3.12",
@@ -60,6 +64,11 @@ uv_py_workspace(
         ":linux_aarch64": "platform_machine == 'aarch64' and sys_platform == 'linux'",
         ":darwin_aarch64": "platform_machine == 'arm64' and sys_platform == 'darwin'",
     },
+    # Force msgpack to build from source for demonstration.
+    uv_sync_args = [
+        "--no-binary-package",
+        "msgpack",
+    ],
     wheels = ["//native_lib"],
 )
 
