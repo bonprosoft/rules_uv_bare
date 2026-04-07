@@ -18,10 +18,16 @@ from lib import add
     default=None,
     help="Override the second operand from config.",
 )
-def run(a: int | None, b: int | None) -> None:
-    config_path = Path(__file__).parent / "data" / "config.json"
-    config = json.loads(config_path.read_text())
-    a = a if a is not None else config["a"]
-    b = b if b is not None else config["b"]
+@click.option(
+    "--config",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to config JSON (default: bundled config).",
+)
+def run(a: int | None, b: int | None, config: str | None) -> None:
+    config_path = Path(config) if config else Path(__file__).parent / "data" / "config.json"
+    cfg = json.loads(config_path.read_text())
+    a = a if a is not None else cfg["a"]
+    b = b if b is not None else cfg["b"]
     result = add(a, b)
     click.echo(f"{a} + {b} = {result}")

@@ -6,6 +6,7 @@ exports_files(
     [
         "venv_run.sh",
         "venv_activate.sh",
+        "venv_entrypoint.sh.tpl",
     ],
     visibility = ["//visibility:public"],
 )
