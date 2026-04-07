@@ -173,12 +173,17 @@ uv_py_entrypoint(<a href="#uv_py_entrypoint-name">name</a>, <a href="#uv_py_entr
 
 Runs a command in the workspace venv.
 
-**Example**
+``cmd`` is embedded in the built binary, so both ``bazel run``
+and direct invocation (``./bazel-bin/<name>``) work.
+
+``rlocation`` bash function is supported in ``cmd`` to reference data files.
+
 ```bzl
 uv_py_entrypoint(
     name = "run_app",
     workspace = ":my_workspace",
-    cmd = ["python", "-m", "my_app"],
+    cmd = ["python", "$(rlocation my_repo/app/script.py)"],
+    data = ["//app:script.py"],
 )
 ```
 
@@ -190,8 +195,8 @@ uv_py_entrypoint(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_entrypoint-name"></a>name |  target name.   |  none |
 | <a id="uv_py_entrypoint-workspace"></a>workspace |  uv_py_workspace target.   |  none |
-| <a id="uv_py_entrypoint-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "script.py"]``).   |  none |
-| <a id="uv_py_entrypoint-kwargs"></a>kwargs |  additional arguments forwarded to ``sh_binary``.   |  none |
+| <a id="uv_py_entrypoint-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "script.py"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
+| <a id="uv_py_entrypoint-kwargs"></a>kwargs |  additional arguments forwarded to the underlying rule.   |  none |
 
 
 <a id="uv_py_export"></a>
@@ -307,7 +312,8 @@ uv_py_test(<a href="#uv_py_test-name">name</a>, <a href="#uv_py_test-workspace">
 
 Runs a command in the workspace venv as a test.
 
-**Example**
+See ``uv_py_entrypoint`` for details on ``cmd`` and ``rlocation`` support.
+
 ```bzl
 uv_py_test(
     name = "test_app",
@@ -324,8 +330,8 @@ uv_py_test(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_test-name"></a>name |  target name.   |  none |
 | <a id="uv_py_test-workspace"></a>workspace |  uv_py_workspace target.   |  none |
-| <a id="uv_py_test-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "-m", "pytest", "tests/"]``).   |  none |
-| <a id="uv_py_test-kwargs"></a>kwargs |  additional arguments forwarded to ``sh_test``.   |  none |
+| <a id="uv_py_test-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "-m", "pytest", "tests/"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
+| <a id="uv_py_test-kwargs"></a>kwargs |  additional arguments forwarded to the underlying rule.   |  none |
 
 
 <a id="uv_py_wheel"></a>

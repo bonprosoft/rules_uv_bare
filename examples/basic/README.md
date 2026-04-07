@@ -16,6 +16,9 @@ bazel run //:ws.lock
 # Run the application
 bazel run //:run
 
+# Run the application with a different config
+bazel run //:run2
+
 # Run tests
 bazel test //:test
 

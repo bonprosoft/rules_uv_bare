@@ -30,6 +30,21 @@ uv_py_entrypoint(
     workspace = ":ws",
 )
 
+# Another target to demonstrate $(rlocation ...) usage.
+uv_py_entrypoint(
+    name = "run2",
+    cmd = [
+        "python",
+        "-m",
+        "app",
+        "--config",
+        # NOTE: _main is the canonical name of the root module.
+        "$(rlocation _main/another_app_config.json)",
+    ],
+    data = ["another_app_config.json"],
+    workspace = ":ws",
+)
+
 uv_py_test(
     name = "test",
     cmd = [
