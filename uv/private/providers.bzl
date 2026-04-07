@@ -32,6 +32,13 @@ UvPyRuntimeInfo = provider(
     },
 )
 
+UvBuildEnvInfo = provider(
+    "Environment variables to forward to uv sync and wheel builds.",
+    fields = {
+        "env": "Dict of environment variable name to value",
+    },
+)
+
 UvPyManifestInfo = provider(
     "uv workspace manifest Info (for internal use only)",
     fields = {

@@ -2,7 +2,7 @@
 
 load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//uv/private:providers.bzl", "UvPyManifestInfo", "UvPyPackageInfo", "UvPyRuntimeInfo", "UvPyWheelInfo")
+load("//uv/private:providers.bzl", "UvBuildEnvInfo", "UvPyManifestInfo", "UvPyPackageInfo", "UvPyRuntimeInfo", "UvPyWheelInfo")
 
 def _uv_multi_platform_transition_impl(settings, attr):
     # Use split-transition to iterate over possible platforms.
@@ -234,6 +234,12 @@ def _uv_py_workspace_rule_impl(ctx):
     lock_dir_depth = info.lock_file.short_path.count("/")
     root_rel = "/".join([".."] * lock_dir_depth) if lock_dir_depth > 0 else "."
 
+    # Merge environment variables. Providers must come first so user can still override envs.
+    env = {}
+    for provider_target in ctx.attr.env_providers:
+        env.update(provider_target[UvBuildEnvInfo].env)
+    env.update(ctx.attr.env)
+
     build_config = {
         "wdir_path": wdir_dir.path,
         "root_file_path": root_file.path,
@@ -262,7 +268,9 @@ def _uv_py_workspace_rule_impl(ctx):
         outputs = [root_file, wdir_dir],
         inputs = all_inputs,
         tools = [ctx.executable._workspace_tool, ctx.executable._uv],
+        env = env,
         execution_requirements = {"local": "1"},
+        use_default_shell_env = ctx.attr.env_inherit,
     )
 
     runfiles = ctx.runfiles(
@@ -276,6 +284,20 @@ _uv_py_workspace_rule = rule(
     attrs = {
         "manifest": attr.label(mandatory = True, providers = [UvPyManifestInfo]),
         "uv_sync_args": attr.string_list(),
+        "env": attr.string_dict(
+            doc = "Environment variables to set when running uv sync.",
+            default = {},
+        ),
+        "env_inherit": attr.bool(
+            doc = "If True, inherit the host shell environment when running uv sync. " +
+                  "Prefer env_providers for reproducible builds.",
+            default = False,
+        ),
+        "env_providers": attr.label_list(
+            doc = "Targets providing UvBuildEnvInfo with additional environment variables.",
+            providers = [UvBuildEnvInfo],
+            default = [],
+        ),
         "_workspace_tool": attr.label(
             default = Label("@rules_uv_bare//uv/private:workspace_tool"),
             executable = True,
@@ -308,6 +330,9 @@ def uv_py_workspace(
         dependency_groups = {"test": ["pytest>=8.0"]},
         extra_pyproject_content = "",
         uv_sync_args = [],
+        env = {},
+        env_inherit = False,
+        env_providers = [],
         target_compatible_with = [],
         visibility = ["//visibility:public"]):
     """Define and builds a uv workspace from uv_py_package targets.
@@ -346,6 +371,12 @@ def uv_py_workspace(
             the generated pyproject.toml (e.g. ``[tool.pytest.ini_options]``).
         uv_sync_args: additional arguments passed to ``uv sync``
             (e.g. ``["--index-url", "https://private.pypi.org/simple"]``).
+        env: dict of environment variable name to value, forwarded to
+            ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).
+        env_inherit: if True, inherit the host shell environment when
+            running ``uv sync``. Prefer ``env_providers`` for reproducible builds.
+        env_providers: list of targets providing ``UvBuildEnvInfo``.
+            If the ``env`` attr sets the same variable, it takes precedence.
         target_compatible_with: standard Bazel ``target_compatible_with``
             constraint list. Targets whose platform doesn't satisfy these
             constraints are skipped. It also applied to the sub-targets.
@@ -367,6 +398,9 @@ def uv_py_workspace(
         name = name,
         manifest = ":" + name + ".manifest",
         uv_sync_args = uv_sync_args,
+        env = env,
+        env_inherit = env_inherit,
+        env_providers = env_providers,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
     )

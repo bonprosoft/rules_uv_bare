@@ -19,11 +19,12 @@ load("//uv/private:entrypoint.bzl", _uv_py_entrypoint = "uv_py_entrypoint", _uv_
 load("//uv/private:import_wheel.bzl", _uv_py_import_wheel = "uv_py_import_wheel")
 load("//uv/private:lock.bzl", _uv_py_export = "uv_py_export", _uv_py_lock = "uv_py_lock")
 load("//uv/private:package.bzl", _DEFAULT_PY_EXCLUDES = "DEFAULT_PY_EXCLUDES", _uv_py_package = "uv_py_package")
-load("//uv/private:providers.bzl", _UvPyPackageInfo = "UvPyPackageInfo", _UvPyWheelInfo = "UvPyWheelInfo")
+load("//uv/private:providers.bzl", _UvBuildEnvInfo = "UvBuildEnvInfo", _UvPyPackageInfo = "UvPyPackageInfo", _UvPyWheelInfo = "UvPyWheelInfo")
 load("//uv/private:wheel.bzl", _uv_py_wheel = "uv_py_wheel")
 load("//uv/private:workspace.bzl", _uv_py_workspace = "uv_py_workspace")
 
 DEFAULT_PY_EXCLUDES = _DEFAULT_PY_EXCLUDES
+UvBuildEnvInfo = _UvBuildEnvInfo
 UvPyPackageInfo = _UvPyPackageInfo
 UvPyWheelInfo = _UvPyWheelInfo
 uv_py_deploy = _uv_py_deploy

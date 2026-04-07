@@ -1,6 +1,6 @@
 # Native Cross-Compilation Example
 
-Demonstrates cross-compiling a native C++ extension (nanobind) for Linux x86\_64 and Linux/macOS aarch64.
+Demonstrates cross-compiling a native C++ extension (nanobind) for Linux x86\_64 and Linux/macOS aarch64, plus building a third-party C extension from source using `env_providers`.
 
 ## How it works
 
@@ -9,8 +9,11 @@ Then it generates marker-qualified `[tool.uv.sources]` entries (e.g. `platform_m
 This allows uv to produce a single unified `uv.lock` covering all listed platforms.
 
 ```python
+uv_cc_env(name = "cc_env")
+
 uv_py_workspace(
     name = "ws",
+    env_providers = [":cc_env"],
     members = ["//app"],
     wheels = ["//native_lib:native_lib_uv"],
     lock = "uv.lock",
