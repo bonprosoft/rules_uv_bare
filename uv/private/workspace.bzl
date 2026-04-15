@@ -220,31 +220,40 @@ _uv_py_manifest_rule = rule(
     toolchains = [],
 )
 
+def _build_env(ctx, exec_py_runtime):
+    env = {}
+    for provider_target in ctx.attr.env_providers:
+        env.update(provider_target[UvBuildEnvInfo].env)
+    env.update(ctx.attr.env)
+
+    if env:
+        # when `env` is non-empty, `ctx.actions.run` strips the default PATH,
+        # which may break py_binary bootstrap required for workspace_tool.py.
+        # As a workaround, we maunally put the PATH enrty back if it is missing.
+        py_bin_dir = exec_py_runtime.interpreter_path.rsplit("/", 1)[0] if "/" in exec_py_runtime.interpreter_path else ""
+        existing_path = env.get("PATH", "")
+        if py_bin_dir and py_bin_dir not in existing_path:
+            env["PATH"] = py_bin_dir + (":" + existing_path if existing_path else "")
+
+    files = [provider_target[UvBuildEnvInfo].files for provider_target in ctx.attr.env_providers]
+    return env, files
+
 def _uv_py_workspace_rule_impl(ctx):
     for c in ctx.attr._host_constraints:
         if not ctx.target_platform_has_constraint(c[platform_common.ConstraintValueInfo]):
             fail("Workspace cannot be built if the target platform doesn't match the host since it runs `uv sync` locally and produces host-platform artifacts. " +
-                 "Use uv_py_lock or uv_py_export instead.")
+                 "Use `.deploy` target, uv_py_lock or uv_py_export instead.")
 
     info = ctx.attr.manifest[UvPyManifestInfo]
     root_file = ctx.actions.declare_file(ctx.attr.name + "_root")
     wdir_dir = ctx.actions.declare_directory(ctx.attr.name + "_venv")
     exec_py_runtime = ctx.attr._exec_py_runtime[UvPyRuntimeInfo]
 
-    lock_dir_depth = info.lock_file.short_path.count("/")
-    root_rel = "/".join([".."] * lock_dir_depth) if lock_dir_depth > 0 else "."
-
-    # Merge environment variables. Providers must come first so user can still override envs.
-    env = {}
-    for provider_target in ctx.attr.env_providers:
-        env.update(provider_target[UvBuildEnvInfo].env)
-    env.update(ctx.attr.env)
+    env, env_provider_files = _build_env(ctx, exec_py_runtime)
 
     build_config = {
         "wdir_path": wdir_dir.path,
         "root_file_path": root_file.path,
-        "root_rel": root_rel,
-        "uv_sync_args": ctx.attr.uv_sync_args,
         "python_interpreter_path": exec_py_runtime.interpreter_path,
         "uv_path": ctx.executable._uv.path,
     }
@@ -253,7 +262,7 @@ def _uv_py_workspace_rule_impl(ctx):
 
     all_inputs = depset(
         direct = info.pyproject_inputs + [info.lock_file, info.manifest_file, config_file] + info.wheel_files,
-        transitive = [info.src_files, info.data_files, exec_py_runtime.files],
+        transitive = [info.src_files, info.data_files, exec_py_runtime.files] + env_provider_files,
     )
 
     ctx.actions.run(
@@ -283,7 +292,6 @@ _uv_py_workspace_rule = rule(
     implementation = _uv_py_workspace_rule_impl,
     attrs = {
         "manifest": attr.label(mandatory = True, providers = [UvPyManifestInfo]),
-        "uv_sync_args": attr.string_list(),
         "env": attr.string_dict(
             doc = "Environment variables to set when running uv sync.",
             default = {},
@@ -320,6 +328,85 @@ _uv_py_workspace_rule = rule(
     },
 )
 
+def _uv_py_workspace_deploy_rule_impl(ctx):
+    # Unlike the dev workspace rule, this does NOT check host constraints since it doesn't require running a target-platform binary on the host.
+    if not ctx.attr.uv_python_key:
+        fail(
+            "deploy_uv_python is required for the .deploy target. " +
+            'Set it on uv_py_workspace (e.g. deploy_uv_python = "cpython-3.12" ' +
+            'or a cross-compile key like "cpython-3.12-linux-aarch64-gnu").',
+        )
+    info = ctx.attr.manifest[UvPyManifestInfo]
+    deploy_dir = ctx.actions.declare_directory(ctx.attr.name + "_dir")
+    exec_py_runtime = ctx.attr._exec_py_runtime[UvPyRuntimeInfo]
+
+    env, env_provider_files = _build_env(ctx, exec_py_runtime)
+
+    deploy_config = {
+        "deploy_dir_path": deploy_dir.path,
+        "uv_path": ctx.executable._uv.path,
+        "uv_python_key": ctx.attr.uv_python_key,
+        "manylinux": ctx.attr.manylinux,
+        "build_deps": ctx.attr.build_deps,
+        "bundle_python": ctx.attr.bundle_python,
+    }
+    config_file = ctx.actions.declare_file(ctx.attr.name + ".deploy.config.json")
+    ctx.actions.write(output = config_file, content = json.encode(deploy_config))
+
+    all_inputs = depset(
+        direct = info.pyproject_inputs + [info.lock_file, info.manifest_file, config_file] + info.wheel_files,
+        transitive = [info.src_files, info.data_files, exec_py_runtime.files] + env_provider_files,
+    )
+
+    ctx.actions.run(
+        executable = ctx.executable._workspace_tool,
+        arguments = [
+            "--manifest",
+            info.manifest_file.path,
+            "--config",
+            config_file.path,
+            "deploy",
+        ],
+        outputs = [deploy_dir],
+        inputs = all_inputs,
+        tools = [ctx.executable._workspace_tool, ctx.executable._uv],
+        env = env,
+        execution_requirements = {"local": "1"},
+        use_default_shell_env = ctx.attr.env_inherit,
+    )
+
+    runfiles = ctx.runfiles(files = [deploy_dir])
+    return [DefaultInfo(files = depset([deploy_dir]), runfiles = runfiles)]
+
+_uv_py_workspace_deploy_rule = rule(
+    implementation = _uv_py_workspace_deploy_rule_impl,
+    attrs = {
+        "manifest": attr.label(mandatory = True, providers = [UvPyManifestInfo]),
+        "uv_python_key": attr.string(mandatory = True),
+        "manylinux": attr.string(default = ""),
+        "build_deps": attr.string_list(default = []),
+        "bundle_python": attr.bool(default = True),
+        "env": attr.string_dict(default = {}),
+        "env_inherit": attr.bool(default = False),
+        "env_providers": attr.label_list(providers = [UvBuildEnvInfo], default = []),
+        "_workspace_tool": attr.label(
+            default = Label("@rules_uv_bare//uv/private:workspace_tool"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "_uv": attr.label(
+            default = Label("@multitool//tools/uv"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "_exec_py_runtime": attr.label(
+            default = Label("@rules_uv_bare//uv/private:py_runtime"),
+            cfg = "exec",
+            providers = [UvPyRuntimeInfo],
+        ),
+    },
+)
+
 def uv_py_workspace(
         name,
         members,
@@ -329,10 +416,13 @@ def uv_py_workspace(
         python_requires = ">=3.11",
         dependency_groups = {"test": ["pytest>=8.0"]},
         extra_pyproject_content = "",
-        uv_sync_args = [],
         env = {},
         env_inherit = False,
         env_providers = [],
+        deploy_uv_python = "",
+        deploy_manylinux = "",
+        deploy_build_deps = [],
+        deploy_bundle_python = True,
         target_compatible_with = [],
         visibility = ["//visibility:public"]):
     """Define and builds a uv workspace from uv_py_package targets.
@@ -341,6 +431,7 @@ def uv_py_workspace(
 
     - ``<name>.run``: runs commands in the workspace venv
     - ``<name>.activate``: prints the path to the venv activate script for shell sourcing
+    - ``<name>.deploy``: builds a self-contained env with a bundled Python interpreter
 
     Use ``uv_py_lock`` and ``uv_py_export`` for lock-file management and workspace export.
 
@@ -368,15 +459,29 @@ def uv_py_workspace(
         dependency_groups: dict of group name to dep list
             (default ``{"test": ["pytest>=8.0"]}``). Pass ``{}`` to disable.
         extra_pyproject_content: additional TOML content appended verbatim to
-            the generated pyproject.toml (e.g. ``[tool.pytest.ini_options]``).
-        uv_sync_args: additional arguments passed to ``uv sync``
-            (e.g. ``["--index-url", "https://private.pypi.org/simple"]``).
+            the generated pyproject.toml.
         env: dict of environment variable name to value, forwarded to
             ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).
         env_inherit: if True, inherit the host shell environment when
             running ``uv sync``. Prefer ``env_providers`` for reproducible builds.
         env_providers: list of targets providing ``UvBuildEnvInfo``.
             If the ``env`` attr sets the same variable, it takes precedence.
+        deploy_uv_python: uv python install key for the ``.deploy`` target
+            (e.g. ``"cpython-3.12"`` for host-native, or a full cross-compile
+            key like ``"cpython-3.12-linux-aarch64-gnu"`` /
+            ``"cpython-3.12-macos-aarch64-none"``). Accepts anything
+            ``uv python list`` resolves; typically a ``select()`` over target
+            platforms. Cross-compile is detected automatically by comparing
+            the resolved entry's ``(os, arch)`` to the host's.
+        deploy_manylinux: optional manylinux baseline override for Linux+gnu
+            cross-compile (e.g. ``"manylinux_2_28"``). The default value is
+            ``manylinux2014`` (glibc 2.17). Ignored for musl and other OS.
+        deploy_build_deps: Python packages to pre-install as host-platform
+            build tools (e.g. ``["setuptools", "wheel", "uv-build>=0.7"]``).
+        deploy_bundle_python: if ``True`` (default), bundle a standalone Python
+            interpreter. If ``False``, the deploy artifact doesn't bundle
+            interpreter, and put a ``bin/python3`` shim instead that searches
+            ``python3.X``/``python3`` over ``PATH``.
         target_compatible_with: standard Bazel ``target_compatible_with``
             constraint list. Targets whose platform doesn't satisfy these
             constraints are skipped. It also applied to the sub-targets.
@@ -397,7 +502,6 @@ def uv_py_workspace(
     _uv_py_workspace_rule(
         name = name,
         manifest = ":" + name + ".manifest",
-        uv_sync_args = uv_sync_args,
         env = env,
         env_inherit = env_inherit,
         env_providers = env_providers,
@@ -418,5 +522,19 @@ def uv_py_workspace(
         args = ["$(rootpath " + name + ")"],
         data = [name],
         target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+    _uv_py_workspace_deploy_rule(
+        name = name + ".deploy",
+        manifest = ":" + name + ".manifest",
+        uv_python_key = deploy_uv_python,
+        manylinux = deploy_manylinux,
+        build_deps = deploy_build_deps,
+        bundle_python = deploy_bundle_python,
+        env = env,
+        env_inherit = env_inherit,
+        env_providers = env_providers,
+        target_compatible_with = target_compatible_with,
+        tags = ["manual"],
         visibility = visibility,
     )

@@ -1,14 +1,13 @@
 """Custom UvBuildEnvInfo provider for Rust/Cargo packages.
 
 Resolves the CC toolchain's linker and sets CARGO_TARGET_<triple>_LINKER
-so maturin/cargo can find it when building Rust-based Python packages
-(e.g., eclipse-zenoh).
+so maturin/cargo can find it when building Rust-based Python packages.
 """
 
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
-load("@rules_uv_bare//uv:defs.bzl", "UvBuildEnvInfo")
+load("@rules_uv_bare//uv:defs.bzl", "UvBuildEnvInfo", "to_exec_root_path")
 
 def _cargo_uv_env_impl(ctx):
     cc_toolchain = find_cc_toolchain(ctx)
@@ -27,7 +26,7 @@ def _cargo_uv_env_impl(ctx):
     triple = ctx.attr.cargo_target_triple
     key = "CARGO_TARGET_" + triple.upper().replace("-", "_") + "_LINKER"
 
-    return [UvBuildEnvInfo(env = {key: linker})]
+    return [UvBuildEnvInfo(env = {key: to_exec_root_path(linker)}, files = depset())]
 
 cargo_uv_env = rule(
     implementation = _cargo_uv_env_impl,

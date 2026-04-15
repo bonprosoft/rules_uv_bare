@@ -2,7 +2,10 @@
 name = "app"
 version = "0.0.1"
 requires-python = ">=3.12"
-dependencies = ["msgpack>=1.1", "eclipse-zenoh==1.8.0"]
+dependencies = ["msgpack>=1.1", "pydantic-core>=2.20"]
+
+[project.scripts]
+app = "app:run"
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]

@@ -1,5 +1,5 @@
 import msgpack
-import zenoh
+from pydantic_core import SchemaValidator, core_schema
 
 
 def run() -> None:
@@ -9,4 +9,6 @@ def run() -> None:
     print(f"Original:  {data}")
     print(f"Packed:    {packed!r} ({len(packed)} bytes)")
     print(f"Unpacked:  {unpacked}")
-    print(f"Zenoh available: {hasattr(zenoh, 'open')}")
+
+    validator = SchemaValidator(core_schema.int_schema())
+    print(f"pydantic-core validated int: {validator.validate_python(42)}")

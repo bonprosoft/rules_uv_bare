@@ -77,7 +77,7 @@ uv_py_workspace(
 )
 ```
 
-Most of dependency metadata stays in `pyproject.toml`, which serves as the single source of truth already understood by the most of Python ecosystem.
+Most of dependency metadata stays in `pyproject.toml`, which serves as the single source of truth already understood by most of the Python ecosystem.
 You can still declare explicit `deps` if you need Bazel features like `bazel cquery`.
 
 Features:
@@ -109,6 +109,9 @@ name = "my-package"
 version = "0.0.1"
 requires-python = ">=3.12"
 dependencies = ["numpy>=1.26,<3"]
+
+[project.scripts]
+my-app = "my_package:main"
 ```
 
 ```python
@@ -130,6 +133,7 @@ uv_py_workspace(
     name = "my_workspace",
     members = ["//my_package"],
     lock = "uv.lock",
+    deploy_uv_python = "cpython-3.12",
 )
 
 uv_py_lock(
@@ -140,13 +144,13 @@ uv_py_lock(
 uv_py_entrypoint(
     name = "run",
     workspace = ":my_workspace",
-    cmd = ["python", "-m", "my_package"],
+    cmd = ["my-app"],
 )
 
 uv_py_test(
     name = "test",
     workspace = ":my_workspace",
-    cmd = ["python", "-m", "pytest", "tests/"],
+    cmd = ["pytest", "tests/"],
 )
 ```
 
@@ -159,9 +163,19 @@ bazel run //:my_workspace.lock
 ### 5. Build and test
 
 ```bash
-bazel build //:run
+# Run in development environment (faster)
+bazel run //:run
 bazel test //:test
+
+# Build self-contained deploy (slower)
+bazel build //:my_workspace.deploy
+bazel run //:run.deploy
 ```
+
+The `.deploy` target bundles a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter matching `deploy_uv_python`.
+The build artifact is fully self-contained and does not require Python on the target host.
+
+`.deploy` sub-targets (`<workspace>.deploy`, `<entrypoint>.deploy`, and any `uv_py_deploy` target) are tagged `manual`, so `bazel build //...` skips them.
 
 ## Rules Reference
 
@@ -289,18 +303,71 @@ uv_py_workspace(
 )
 ```
 
-> **Note:** `uv_cc_env` requires `bazel_dep(name = "rules_cc", ...)` in your `MODULE.bazel`.
-
 You can write custom providers by returning `UvBuildEnvInfo` from a rule (see `examples/env_provider/` for a Cargo/Rust example).
 You can also directly pass `env` attribute to override environment variables statically.
 
-### Cross-platform deployment
+### Multi-platform lock file
 
 When `target_platforms` is passed to `uv_py_workspace`, it creates a single unified `uv.lock` covering all listed platforms (i.e., the same way as uv).
 Internally, it uses Bazel split transitions to build each wheel once per target platform, and writes marker-qualified `[tool.uv.sources]` entries (e.g. `platform_machine == 'x86_64'`) so that uv picks the correct wheel for each platform from one lock file.
 
-Because `uv sync` runs locally, building the workspace target and its sub-targets (`.run`, `.activate`) **only work when the host platform matches the target platform**.
-Other rules, such as `uv_py_lock`, `uv_py_export`, and `uv_py_deploy`, would work on any platform.
+### Cross-compilation deploy
+
+The `.deploy` target supports cross-compilation.
+It bundles a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter for the target platform, so the output is fully self-contained.
+
+`deploy_uv_python` is required.
+Its value is a uv Python install key (the same key format `uv python list <key>` accepts).
+Cross-compile is detected automatically by comparing the resolved entry's `(os, arch)` to the host.
+
+```python
+uv_py_workspace(
+    name = "ws",
+    env_providers = [":cc_env"],
+    deploy_uv_python = select({
+        ":is_linux_x86_64": "cpython-3.12-linux-x86_64-gnu",
+        ":is_linux_aarch64": "cpython-3.12-linux-aarch64-gnu",
+        ":is_darwin_aarch64": "cpython-3.12-macos-aarch64-none",
+    }),
+    deploy_build_deps = ["setuptools", "wheel", "uv-build>=0.7"],
+    # ...
+)
+```
+
+For the native (no cross-compile) case, a short key without `-<os>-<arch>-<libc>` works:
+
+```python
+deploy_uv_python = "cpython-3.12",
+```
+
+| Attribute | Purpose | Example value |
+|-----------|---------|---------------|
+| `deploy_uv_python` | uv python install key for the `.deploy` target. Both native and cross-compile. | `"cpython-3.12"`, `"cpython-3.12-linux-aarch64-gnu"` |
+| `deploy_manylinux` | Optional manylinux baseline override for Linux+gnu cross-compile. Default `manylinux2014` (glibc 2.17). | `"manylinux_2_28"` |
+| `deploy_build_deps` | Build backends to pre-install | `["setuptools", "wheel"]` |
+
+### The `$$EXEC_ROOT$$` path marker
+
+Custom `UvBuildEnvInfo` providers that expose file paths (e.g., compiler tools, sysroot headers) should mark exec-root-relative paths with `to_exec_root_path()` so they get resolved at runtime:
+
+```python
+load("@rules_uv_bare//uv:defs.bzl", "EXEC_ROOT_MARKER", "UvBuildEnvInfo", "to_exec_root_path")
+
+# In your custom provider rule:
+env["CC"] = to_exec_root_path(cc_path)                  # marks if relative; no-op if absolute
+env["MY_TOOL"] = to_exec_root_path("/usr/bin/my_tool")  # already absolute: returned as-is
+# For values that embed a path inside a larger string, use EXEC_ROOT_MARKER directly:
+env["CFLAGS"] = "-isystem " + EXEC_ROOT_MARKER + include_dir + " -O2"
+```
+
+**Why this is needed:**
+When `uv sync` builds Python packages from source, build tools such as setuptools change the working directory to a temporary build directory.
+Bazel-provided paths are relative to the exec root, so they no longer resolve from that new directory.
+The marker is replaced with the absolute exec root at runtime, which makes the paths work regardless of the current directory.
+
+The built-in `uv_cc_env` rule handles this automatically.
+You only need to use the marker when writing custom providers.
+See `examples/env_provider/cargo_uv_env.bzl` for an example.
 
 ## Advanced Examples
 
@@ -311,10 +378,13 @@ uv_py_workspace(
     name = "ws",
     members = ["//my_package"],
     lock = "uv.lock",
-    uv_sync_args = [
-        "--index-url", "https://private.pypi.org/simple",
-        "--extra-index-url", "https://pypi.org/simple",
-    ],
+    extra_pyproject_content = """
+[[tool.uv.index]]
+url = "https://private.pypi.org/simple"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+""",
 )
 ```
 

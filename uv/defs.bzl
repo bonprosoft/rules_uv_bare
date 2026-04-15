@@ -12,21 +12,28 @@ Provides:
   - uv_py_wheel: builds a .whl from a uv_py_package target
   - uv_py_import_wheel: imports a wheel file for use with uv_py_package or uv_py_workspace
   - uv_py_deploy: deploys workspace into a standalone directory
+
+Helpers for custom UvBuildEnvInfo providers:
+  - to_exec_root_path: prefix an exec-root-relative path with EXEC_ROOT_MARKER
+  - EXEC_ROOT_MARKER: marker prefix substituted to the absolute exec root at runtime
 """
 
 load("//uv/private:deploy.bzl", _uv_py_deploy = "uv_py_deploy")
 load("//uv/private:entrypoint.bzl", _uv_py_entrypoint = "uv_py_entrypoint", _uv_py_test = "uv_py_test")
 load("//uv/private:import_wheel.bzl", _uv_py_import_wheel = "uv_py_import_wheel")
 load("//uv/private:lock.bzl", _uv_py_export = "uv_py_export", _uv_py_lock = "uv_py_lock")
+load("//uv/private:markers.bzl", _EXEC_ROOT_MARKER = "EXEC_ROOT_MARKER", _to_exec_root_path = "to_exec_root_path")
 load("//uv/private:package.bzl", _DEFAULT_PY_EXCLUDES = "DEFAULT_PY_EXCLUDES", _uv_py_package = "uv_py_package")
 load("//uv/private:providers.bzl", _UvBuildEnvInfo = "UvBuildEnvInfo", _UvPyPackageInfo = "UvPyPackageInfo", _UvPyWheelInfo = "UvPyWheelInfo")
 load("//uv/private:wheel.bzl", _uv_py_wheel = "uv_py_wheel")
 load("//uv/private:workspace.bzl", _uv_py_workspace = "uv_py_workspace")
 
 DEFAULT_PY_EXCLUDES = _DEFAULT_PY_EXCLUDES
+EXEC_ROOT_MARKER = _EXEC_ROOT_MARKER
 UvBuildEnvInfo = _UvBuildEnvInfo
 UvPyPackageInfo = _UvPyPackageInfo
 UvPyWheelInfo = _UvPyWheelInfo
+to_exec_root_path = _to_exec_root_path
 uv_py_deploy = _uv_py_deploy
 uv_py_entrypoint = _uv_py_entrypoint
 uv_py_export = _uv_py_export

@@ -15,6 +15,10 @@ Provides:
   - uv_py_import_wheel: imports a wheel file for use with uv_py_package or uv_py_workspace
   - uv_py_deploy: deploys workspace into a standalone directory
 
+Helpers for custom UvBuildEnvInfo providers:
+  - to_exec_root_path: prefix an exec-root-relative path with EXEC_ROOT_MARKER
+  - EXEC_ROOT_MARKER: marker prefix substituted to the absolute exec root at runtime
+
 <a id="uv_py_import_wheel"></a>
 
 ## uv_py_import_wheel
@@ -57,16 +61,17 @@ uv_py_import_wheel(
 <pre>
 load("@rules_uv_bare//uv:defs.bzl", "UvBuildEnvInfo")
 
-UvBuildEnvInfo(<a href="#UvBuildEnvInfo-env">env</a>)
+UvBuildEnvInfo(<a href="#UvBuildEnvInfo-env">env</a>, <a href="#UvBuildEnvInfo-files">files</a>)
 </pre>
 
-Environment variables to forward to uv sync and wheel builds.
+Environment variables and toolchain files to forward to uv sync and wheel builds.
 
 **FIELDS**
 
 | Name  | Description |
 | :------------- | :------------- |
 | <a id="UvBuildEnvInfo-env"></a>env |  Dict of environment variable name to value    |
+| <a id="UvBuildEnvInfo-files"></a>files |  Depset of files required by the environment (e.g. CC toolchain sysroot, runtime libs)    |
 
 
 <a id="UvPyPackageInfo"></a>
@@ -117,6 +122,26 @@ Wheel info
 | <a id="UvPyWheelInfo-frozen"></a>frozen |  If false, the hash is recomputed at build time    |
 
 
+<a id="to_exec_root_path"></a>
+
+## to_exec_root_path
+
+<pre>
+load("@rules_uv_bare//uv:defs.bzl", "to_exec_root_path")
+
+to_exec_root_path(<a href="#to_exec_root_path-path">path</a>)
+</pre>
+
+Return `path` with the exec-root marker if it is a relative path. Absolute paths are returned as-is.
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="to_exec_root_path-path"></a>path |  <p align="center"> - </p>   |  none |
+
+
 <a id="uv_py_deploy"></a>
 
 ## uv_py_deploy
@@ -124,31 +149,10 @@ Wheel info
 <pre>
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy")
 
-uv_py_deploy(<a href="#uv_py_deploy-name">name</a>, <a href="#uv_py_deploy-workspace">workspace</a>, <a href="#uv_py_deploy-python_version">python_version</a>, <a href="#uv_py_deploy-target_platform">target_platform</a>)
+uv_py_deploy(<a href="#uv_py_deploy-name">name</a>, <a href="#uv_py_deploy-workspace">workspace</a>, <a href="#uv_py_deploy-kwargs">**kwargs</a>)
 </pre>
 
-Creates a deployment directory.
-
-**Usage**
-
-```shell
-bazel run //:target -- /path/to/output
-```
-
-For cross-platform packaging, use ``select()`` on ``target_platform``:
-
-```bzl
-uv_py_deploy(
-    name = "deploy",
-    workspace = ":ws",
-    python_version = "3.12",
-    target_platform = select({
-        "//:linux_x86_64": "x86_64-manylinux2014",
-        "//:linux_aarch64": "aarch64-manylinux2014",
-    }),
-)
-```
-
+Copies the ``.deploy`` build artifact to a user-specified directory.
 
 **PARAMETERS**
 
@@ -157,8 +161,7 @@ uv_py_deploy(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_deploy-name"></a>name |  target name.   |  none |
 | <a id="uv_py_deploy-workspace"></a>workspace |  uv_py_workspace target.   |  none |
-| <a id="uv_py_deploy-python_version"></a>python_version |  Target Python version (e.g. "3.12").   |  none |
-| <a id="uv_py_deploy-target_platform"></a>target_platform |  uv platform string (e.g. "x86_64-manylinux2014"), typically from ``select({...})``. Empty string means host.   |  `""` |
+| <a id="uv_py_deploy-kwargs"></a>kwargs |  additional arguments forwarded to ``sh_binary``.   |  none |
 
 
 <a id="uv_py_entrypoint"></a>
@@ -173,17 +176,19 @@ uv_py_entrypoint(<a href="#uv_py_entrypoint-name">name</a>, <a href="#uv_py_entr
 
 Runs a command in the workspace venv.
 
+Also creates a ``<name>.deploy`` sub-target that uses the relocatable self-contained env.
+
 ``cmd`` is embedded in the built binary, so both ``bazel run``
 and direct invocation (``./bazel-bin/<name>``) work.
 
 ``rlocation`` bash function is supported in ``cmd`` to reference data files.
 
 ```bzl
+# Creates :run (dev) and :run.deploy (self-contained, deploy)
 uv_py_entrypoint(
-    name = "run_app",
-    workspace = ":my_workspace",
-    cmd = ["python", "$(rlocation my_repo/app/script.py)"],
-    data = ["//app:script.py"],
+    name = "run",
+    workspace = ":ws",
+    cmd = ["my-app"],
 )
 ```
 
@@ -195,7 +200,7 @@ uv_py_entrypoint(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_entrypoint-name"></a>name |  target name.   |  none |
 | <a id="uv_py_entrypoint-workspace"></a>workspace |  uv_py_workspace target.   |  none |
-| <a id="uv_py_entrypoint-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "script.py"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
+| <a id="uv_py_entrypoint-cmd"></a>cmd |  command as a list of strings (e.g. ``["my-app"]`` or ``["python", "script.py"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
 | <a id="uv_py_entrypoint-kwargs"></a>kwargs |  additional arguments forwarded to the underlying rule.   |  none |
 
 
@@ -316,9 +321,9 @@ See ``uv_py_entrypoint`` for details on ``cmd`` and ``rlocation`` support.
 
 ```bzl
 uv_py_test(
-    name = "test_app",
-    workspace = ":my_workspace",
-    cmd = ["python", "-m", "pytest", "tests/"],
+    name = "test",
+    workspace = ":ws",
+    cmd = ["pytest", "tests/"],
 )
 ```
 
@@ -330,7 +335,7 @@ uv_py_test(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_test-name"></a>name |  target name.   |  none |
 | <a id="uv_py_test-workspace"></a>workspace |  uv_py_workspace target.   |  none |
-| <a id="uv_py_test-cmd"></a>cmd |  command as a list of strings (e.g. ``["python", "-m", "pytest", "tests/"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
+| <a id="uv_py_test-cmd"></a>cmd |  command as a list of strings (e.g. ``["pytest", "tests/"]``). Supports ``$(rlocation REPO/path)`` for referencing runfiles.   |  none |
 | <a id="uv_py_test-kwargs"></a>kwargs |  additional arguments forwarded to the underlying rule.   |  none |
 
 
@@ -374,8 +379,9 @@ uv_py_wheel(
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_workspace")
 
 uv_py_workspace(<a href="#uv_py_workspace-name">name</a>, <a href="#uv_py_workspace-members">members</a>, <a href="#uv_py_workspace-lock">lock</a>, <a href="#uv_py_workspace-wheels">wheels</a>, <a href="#uv_py_workspace-target_platforms">target_platforms</a>, <a href="#uv_py_workspace-python_requires">python_requires</a>, <a href="#uv_py_workspace-dependency_groups">dependency_groups</a>,
-                <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-uv_sync_args">uv_sync_args</a>, <a href="#uv_py_workspace-env">env</a>, <a href="#uv_py_workspace-env_inherit">env_inherit</a>, <a href="#uv_py_workspace-env_providers">env_providers</a>,
-                <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>, <a href="#uv_py_workspace-visibility">visibility</a>)
+                <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-env">env</a>, <a href="#uv_py_workspace-env_inherit">env_inherit</a>, <a href="#uv_py_workspace-env_providers">env_providers</a>, <a href="#uv_py_workspace-deploy_uv_python">deploy_uv_python</a>,
+                <a href="#uv_py_workspace-deploy_manylinux">deploy_manylinux</a>, <a href="#uv_py_workspace-deploy_build_deps">deploy_build_deps</a>, <a href="#uv_py_workspace-deploy_bundle_python">deploy_bundle_python</a>, <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>,
+                <a href="#uv_py_workspace-visibility">visibility</a>)
 </pre>
 
 Define and builds a uv workspace from uv_py_package targets.
@@ -384,6 +390,7 @@ Also creates the following sub-targets:
 
 - ``<name>.run``: runs commands in the workspace venv
 - ``<name>.activate``: prints the path to the venv activate script for shell sourcing
+- ``<name>.deploy``: builds a self-contained env with a bundled Python interpreter
 
 Use ``uv_py_lock`` and ``uv_py_export`` for lock-file management and workspace export.
 
@@ -410,11 +417,14 @@ uv_py_workspace(
 | <a id="uv_py_workspace-target_platforms"></a>target_platforms |  dict of platform label to PEP 508 marker string. When provided, each wheel is built under every listed platform via a split transition. Keys are platform labels (e.g. ``":linux_x86_64"``), values are marker expressions (e.g. ``"platform_machine == 'x86_64'"``).   |  `{}` |
 | <a id="uv_py_workspace-python_requires"></a>python_requires |  Python version constraint.   |  `">=3.11"` |
 | <a id="uv_py_workspace-dependency_groups"></a>dependency_groups |  dict of group name to dep list (default ``{"test": ["pytest>=8.0"]}``). Pass ``{}`` to disable.   |  `{"test": ["pytest>=8.0"]}` |
-| <a id="uv_py_workspace-extra_pyproject_content"></a>extra_pyproject_content |  additional TOML content appended verbatim to the generated pyproject.toml (e.g. ``[tool.pytest.ini_options]``).   |  `""` |
-| <a id="uv_py_workspace-uv_sync_args"></a>uv_sync_args |  additional arguments passed to ``uv sync`` (e.g. ``["--index-url", "https://private.pypi.org/simple"]``).   |  `[]` |
+| <a id="uv_py_workspace-extra_pyproject_content"></a>extra_pyproject_content |  additional TOML content appended verbatim to the generated pyproject.toml.   |  `""` |
 | <a id="uv_py_workspace-env"></a>env |  dict of environment variable name to value, forwarded to ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).   |  `{}` |
 | <a id="uv_py_workspace-env_inherit"></a>env_inherit |  if True, inherit the host shell environment when running ``uv sync``. Prefer ``env_providers`` for reproducible builds.   |  `False` |
 | <a id="uv_py_workspace-env_providers"></a>env_providers |  list of targets providing ``UvBuildEnvInfo``. If the ``env`` attr sets the same variable, it takes precedence.   |  `[]` |
+| <a id="uv_py_workspace-deploy_uv_python"></a>deploy_uv_python |  uv python install key for the ``.deploy`` target (e.g. ``"cpython-3.12"`` for host-native, or a full cross-compile key like ``"cpython-3.12-linux-aarch64-gnu"`` / ``"cpython-3.12-macos-aarch64-none"``). Accepts anything ``uv python list`` resolves; typically a ``select()`` over target platforms. Cross-compile is detected automatically by comparing the resolved entry's ``(os, arch)`` to the host's.   |  `""` |
+| <a id="uv_py_workspace-deploy_manylinux"></a>deploy_manylinux |  optional manylinux baseline override for Linux+gnu cross-compile (e.g. ``"manylinux_2_28"``). The default value is ``manylinux2014`` (glibc 2.17). Ignored for musl and other OS.   |  `""` |
+| <a id="uv_py_workspace-deploy_build_deps"></a>deploy_build_deps |  Python packages to pre-install as host-platform build tools (e.g. ``["setuptools", "wheel", "uv-build>=0.7"]``).   |  `[]` |
+| <a id="uv_py_workspace-deploy_bundle_python"></a>deploy_bundle_python |  if ``True`` (default), bundle a standalone Python interpreter. If ``False``, the deploy artifact doesn't bundle interpreter, and put a ``bin/python3`` shim instead that searches ``python3.X``/``python3`` over ``PATH``.   |  `True` |
 | <a id="uv_py_workspace-target_compatible_with"></a>target_compatible_with |  standard Bazel ``target_compatible_with`` constraint list. Targets whose platform doesn't satisfy these constraints are skipped. It also applied to the sub-targets.   |  `[]` |
 | <a id="uv_py_workspace-visibility"></a>visibility |  Bazel visibility.   |  `["//visibility:public"]` |
 

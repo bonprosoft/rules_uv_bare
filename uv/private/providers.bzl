@@ -33,9 +33,10 @@ UvPyRuntimeInfo = provider(
 )
 
 UvBuildEnvInfo = provider(
-    "Environment variables to forward to uv sync and wheel builds.",
+    "Environment variables and toolchain files to forward to uv sync and wheel builds.",
     fields = {
         "env": "Dict of environment variable name to value",
+        "files": "Depset of files required by the environment (e.g. CC toolchain sysroot, runtime libs)",
     },
 )
 

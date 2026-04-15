@@ -12,7 +12,7 @@ source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
   { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
 # --- end runfiles.bash initialization v3 ---
 
-WDIR="$(head -1 "$(rlocation "@@RLOCATION_ROOT_FILE@@")")"
-export PATH="$WDIR/.venv/bin:$PATH"
+VENV_BIN=@@VENV_BIN@@
+export PATH="$VENV_BIN:$PATH"
 cd "${BUILD_WORKING_DIRECTORY:-$PWD}"
 exec @@CMD@@ "$@"

@@ -2,6 +2,9 @@ load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_e
 
 uv_py_workspace(
     name = "ws",
+    # Do not bundle Python interpreter at `.deploy` target.
+    deploy_bundle_python = False,
+    deploy_uv_python = "cpython-3.12",
     lock = "uv.lock",
     members = [
         "//lib",
@@ -22,11 +25,7 @@ uv_py_export(
 
 uv_py_entrypoint(
     name = "run",
-    cmd = [
-        "python",
-        "-m",
-        "app",
-    ],
+    cmd = ["app"],
     workspace = ":ws",
 )
 
@@ -34,8 +33,6 @@ uv_py_entrypoint(
 uv_py_entrypoint(
     name = "run2",
     cmd = [
-        "python",
-        "-m",
         "app",
         "--config",
         # NOTE: _main is the canonical name of the root module.
@@ -48,8 +45,6 @@ uv_py_entrypoint(
 uv_py_test(
     name = "test",
     cmd = [
-        "python",
-        "-m",
         "pytest",
         "app/tests/",
     ],
@@ -58,6 +53,5 @@ uv_py_test(
 
 uv_py_deploy(
     name = "deploy",
-    python_version = "3.12",
     workspace = ":ws",
 )

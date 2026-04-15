@@ -1,28 +1,66 @@
-load("@rules_uv_bare//uv:defs.bzl", "uv_py_entrypoint", "uv_py_lock", "uv_py_test", "uv_py_workspace")
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_export", "uv_py_lock", "uv_py_test", "uv_py_workspace")
 load("@rules_uv_bare//uv/cc:defs.bzl", "uv_cc_env")
 load(":cargo_uv_env.bzl", "cargo_uv_env")
+
+config_setting(
+    name = "macos_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+    ],
+)
+
+config_setting(
+    name = "macos_x86_64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:arm64",
+    ],
+)
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
 
 # Enable CC toolchain from rules_uv_bare.
 uv_cc_env(name = "cc_env")
 
-# Custom env.
-cargo_uv_env(name = "cargo_env")
+# Custom env. Pick the Rust target triple from the host platform.
+cargo_uv_env(
+    name = "cargo_env",
+    cargo_target_triple = select({
+        ":macos_arm64": "aarch64-apple-darwin",
+        ":macos_x86_64": "x86_64-apple-darwin",
+        ":linux_arm64": "aarch64-unknown-linux-gnu",
+        ":linux_x86_64": "x86_64-unknown-linux-gnu",
+    }),
+)
 
 uv_py_workspace(
     name = "ws",
+    deploy_uv_python = "cpython-3.12",
     env_providers = [
         ":cc_env",
         ":cargo_env",
     ],
+    # Force build msgpack and pydantic-core from source for demonstration.
+    extra_pyproject_content = """
+tool.uv.no-binary-package = ["msgpack", "pydantic-core"]
+""",
     lock = "uv.lock",
     members = ["//app"],
-    # Force build msgpack and eclipse-zenoh from source for demonstration.
-    uv_sync_args = [
-        "--no-binary-package",
-        "msgpack",
-        "--no-binary-package",
-        "eclipse-zenoh",
-    ],
 )
 
 uv_py_lock(
@@ -30,23 +68,27 @@ uv_py_lock(
     workspace = ":ws",
 )
 
+uv_py_export(
+    name = "ws.export",
+    workspace = ":ws",
+)
+
 uv_py_entrypoint(
     name = "run",
-    cmd = [
-        "python",
-        "-m",
-        "app",
-    ],
+    cmd = ["app"],
     workspace = ":ws",
 )
 
 uv_py_test(
     name = "test",
     cmd = [
-        "python",
-        "-m",
         "pytest",
         "app/tests/",
     ],
+    workspace = ":ws",
+)
+
+uv_py_deploy(
+    name = "deploy",
     workspace = ":ws",
 )

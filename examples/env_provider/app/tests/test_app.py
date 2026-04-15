@@ -8,7 +8,8 @@ def test_msgpack_roundtrip() -> None:
     assert unpacked == data
 
 
-def test_zenoh_import() -> None:
-    import zenoh
+def test_pydantic_core_validate() -> None:
+    from pydantic_core import SchemaValidator, core_schema
 
-    assert hasattr(zenoh, "open")
+    validator = SchemaValidator(core_schema.int_schema())
+    assert validator.validate_python(42) == 42

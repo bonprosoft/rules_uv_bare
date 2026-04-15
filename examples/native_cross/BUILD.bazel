@@ -55,7 +55,21 @@ config_setting(
 
 uv_py_workspace(
     name = "ws",
+    deploy_build_deps = [
+        "setuptools",
+        "wheel",
+        "uv-build>=0.7.19,<0.8",
+    ],
+    deploy_uv_python = select({
+        ":is_linux_x86_64": "cpython-3.12-linux-x86_64-gnu",
+        ":is_linux_aarch64": "cpython-3.12-linux-aarch64-gnu",
+        ":is_darwin_aarch64": "cpython-3.12-macos-aarch64-none",
+    }),
     env_providers = [":cc_env"],
+    # Force msgpack to build from source for demonstration.
+    extra_pyproject_content = """
+tool.uv.no-binary-package = ["msgpack"]
+""",
     lock = "uv.lock",
     members = ["//app"],
     python_requires = ">=3.12",
@@ -64,11 +78,6 @@ uv_py_workspace(
         ":linux_aarch64": "platform_machine == 'aarch64' and sys_platform == 'linux'",
         ":darwin_aarch64": "platform_machine == 'arm64' and sys_platform == 'darwin'",
     },
-    # Force msgpack to build from source for demonstration.
-    uv_sync_args = [
-        "--no-binary-package",
-        "msgpack",
-    ],
     wheels = ["//native_lib"],
 )
 
@@ -84,19 +93,13 @@ uv_py_export(
 
 uv_py_entrypoint(
     name = "run",
-    cmd = [
-        "python",
-        "-m",
-        "app",
-    ],
+    cmd = ["app"],
     workspace = ":ws",
 )
 
 uv_py_test(
     name = "test",
     cmd = [
-        "python",
-        "-m",
         "pytest",
         "app/tests/",
     ],
@@ -105,11 +108,5 @@ uv_py_test(
 
 uv_py_deploy(
     name = "deploy",
-    python_version = "3.12",
-    target_platform = select({
-        ":is_linux_x86_64": "x86_64-manylinux2014",
-        ":is_linux_aarch64": "aarch64-manylinux2014",
-        ":is_darwin_aarch64": "aarch64-apple-darwin",
-    }),
     workspace = ":ws",
 )
