@@ -9,7 +9,14 @@ def _uv_py_venv_target_impl(ctx):
     # Wrap each element with double-quote so $(rlocation ...) will be expanded.
     cmd_str = " ".join([_shell_double_quote(c) for c in ctx.attr.cmd])
 
-    rlocation_path = ctx.workspace_name + "/" + workspace_file.short_path
+    # Files in an external repository have a short_path of the form
+    # "../<repo>/<path>", whose canonical runfiles (rlocation) key is
+    # "<repo>/<path>". Prepending ctx.workspace_name would instead yield the
+    # non-normalized "<workspace>/../<repo>/<path>", which rlocation rejects.
+    if workspace_file.short_path.startswith("../"):
+        rlocation_path = workspace_file.short_path[len("../"):]
+    else:
+        rlocation_path = ctx.workspace_name + "/" + workspace_file.short_path
 
     if ctx.attr.deploy:
         # Deploy mode: workspace_file is the venv directory artifact.
