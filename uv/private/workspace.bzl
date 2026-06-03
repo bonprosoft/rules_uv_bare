@@ -196,7 +196,8 @@ def _uv_py_manifest_impl(ctx):
             src_files = depset(transitive = [pkg.srcs for pkg in packages]),
             data_files = depset(transitive = [pkg.data for pkg in packages]),
             member_files = depset(
-                transitive = [m[DefaultInfo].files for m in ctx.attr.members],
+                direct = [pkg.pyproject for pkg in packages],
+                transitive = [pkg.srcs for pkg in packages] + [pkg.data for pkg in packages],
             ),
         ),
     ]
