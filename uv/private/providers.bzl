@@ -49,6 +49,6 @@ UvPyManifestInfo = provider(
         "pyproject_inputs": "List of pyproject.toml File objects",
         "src_files": "Depset of source files",
         "data_files": "Depset of data files",
-        "member_files": "Depset of all member DefaultInfo.files (for runfiles)",
+        "member_files": "Depset of all package files (pyproject + srcs + data) for direct and transitive members",
     },
 )
