@@ -415,7 +415,7 @@ def uv_py_workspace(
         wheels = [],
         target_platforms = {},
         python_requires = ">=3.11",
-        dependency_groups = {"test": ["pytest>=8.0"]},
+        dependency_groups = {},
         extra_pyproject_content = "",
         env = {},
         env_inherit = False,
@@ -457,8 +457,7 @@ def uv_py_workspace(
             a split transition. Keys are platform labels (e.g. ``":linux_x86_64"``), values
             are marker expressions (e.g. ``"platform_machine == 'x86_64'"``).
         python_requires: Python version constraint.
-        dependency_groups: dict of group name to dep list
-            (default ``{"test": ["pytest>=8.0"]}``). Pass ``{}`` to disable.
+        dependency_groups: dict of group name to dep list (e.g. ``{"test": ["pytest>=8.0"]}``).
         extra_pyproject_content: additional TOML content appended verbatim to
             the generated pyproject.toml.
         env: dict of environment variable name to value, forwarded to

@@ -2,6 +2,7 @@ load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_e
 
 uv_py_workspace(
     name = "ws",
+    dependency_groups = {"test": ["pytest>=8.0"]},
     # Do not bundle Python interpreter at `.deploy` target.
     deploy_bundle_python = False,
     deploy_uv_python = "cpython-3.12",

@@ -134,6 +134,7 @@ uv_py_workspace(
     members = ["//my_package"],
     lock = "uv.lock",
     deploy_uv_python = "cpython-3.12",
+    dependency_groups = {"test": ["pytest>=8.0"]},
 )
 
 uv_py_lock(
