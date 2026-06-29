@@ -5,6 +5,7 @@ uv_cc_env(name = "cc_env")
 
 uv_py_workspace(
     name = "ws",
+    dependency_groups = {"test": ["pytest>=8.0"]},
     deploy_uv_python = "cpython-3.12",
     env_providers = [":cc_env"],
     # Force msgpack to build from source for demonstration.

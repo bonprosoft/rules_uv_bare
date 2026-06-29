@@ -416,7 +416,7 @@ uv_py_workspace(
 | <a id="uv_py_workspace-wheels"></a>wheels |  uv_py_import_wheel targets whose .whl files are registered as ``[tool.uv.sources]`` path entries in the generated pyproject.toml.   |  `[]` |
 | <a id="uv_py_workspace-target_platforms"></a>target_platforms |  dict of platform label to PEP 508 marker string. When provided, each wheel is built under every listed platform via a split transition. Keys are platform labels (e.g. ``":linux_x86_64"``), values are marker expressions (e.g. ``"platform_machine == 'x86_64'"``).   |  `{}` |
 | <a id="uv_py_workspace-python_requires"></a>python_requires |  Python version constraint.   |  `">=3.11"` |
-| <a id="uv_py_workspace-dependency_groups"></a>dependency_groups |  dict of group name to dep list (default ``{"test": ["pytest>=8.0"]}``). Pass ``{}`` to disable.   |  `{"test": ["pytest>=8.0"]}` |
+| <a id="uv_py_workspace-dependency_groups"></a>dependency_groups |  dict of group name to dep list (e.g. ``{"test": ["pytest>=8.0"]}``).   |  `{}` |
 | <a id="uv_py_workspace-extra_pyproject_content"></a>extra_pyproject_content |  additional TOML content appended verbatim to the generated pyproject.toml.   |  `""` |
 | <a id="uv_py_workspace-env"></a>env |  dict of environment variable name to value, forwarded to ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).   |  `{}` |
 | <a id="uv_py_workspace-env_inherit"></a>env_inherit |  if True, inherit the host shell environment when running ``uv sync``. Prefer ``env_providers`` for reproducible builds.   |  `False` |
