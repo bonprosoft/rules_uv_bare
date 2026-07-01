@@ -1,50 +1,59 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@nanobind_bazel//:build_defs.bzl", "nanobind_extension")
-load("@rules_python//python:defs.bzl", "py_library")
-load("@rules_python//python:packaging.bzl", "py_wheel")
-load("@rules_uv_bare//uv:defs.bzl", "uv_py_import_wheel")
+load("@rules_uv_bare//uv:defs.bzl", "uv_py_package")
 
 nanobind_extension(
     name = "_ext",
     srcs = ["_ext.cpp"],
 )
 
-# Copy .so into native_lib/ so it exists alongside __init__.py in the wheel
-genrule(
-    name = "_ext_pkg",
-    srcs = [":_ext"],
-    outs = ["native_lib/_ext.so"],
-    cmd = "cp $(SRCS) $@",
+# Stage a package tree under bazel-bin/.../_staged/:
+#   _staged/pyproject.toml
+#   _staged/native_lib/__init__.py
+#   _staged/native_lib/_ext.so
+#   _staged/native_lib/py.typed
+# Then register it as a workspace member with uv_py_package.
+# `allow_symlink = False` is required so that the staged files are real copies
+# rather than symlinks back to the source.
+#
+# An alternative is to build a wheel with rules_python's py_wheel and import it
+# via uv_py_import_wheel. That keeps the BUILD.bazel shorter but adds an extra
+# wheel-build step. See examples/import_from_rules_python for that pattern.
+copy_file(
+    name = "_staged_pyproject",
+    src = "pyproject.toml",
+    out = "_staged/pyproject.toml",
+    allow_symlink = False,
 )
 
-py_library(
-    name = "native_lib_py",
-    srcs = ["native_lib/__init__.py"],
-    data = ["native_lib/py.typed"],
-    imports = ["."],
+copy_file(
+    name = "_staged_init",
+    src = "native_lib/__init__.py",
+    out = "_staged/native_lib/__init__.py",
+    allow_symlink = False,
 )
 
-filegroup(
-    name = "native_lib_data",
-    srcs = [
-        "native_lib/py.typed",
-    ],
+copy_file(
+    name = "_staged_ext",
+    src = ":_ext",
+    out = "_staged/native_lib/_ext.so",
+    allow_symlink = False,
 )
 
-py_wheel(
-    name = "wheel",
-    distribution = "native_lib",
-    strip_path_prefixes = ["native_lib/"],
-    version = "0.0.1",
-    deps = [
-        ":_ext_pkg",
-        ":native_lib_data",
-        ":native_lib_py",
-    ],
+copy_file(
+    name = "_staged_py_typed",
+    src = "native_lib/py.typed",
+    out = "_staged/native_lib/py.typed",
+    allow_symlink = False,
 )
 
-uv_py_import_wheel(
+uv_py_package(
     name = "native_lib",
-    src = ":wheel",
-    frozen = False,
+    srcs = [":_staged_init"],
+    data = [
+        ":_staged_ext",
+        ":_staged_py_typed",
+    ],
+    pyproject = ":_staged_pyproject",
     visibility = ["//visibility:public"],
 )
