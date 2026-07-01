@@ -51,7 +51,6 @@ cargo_uv_env(
 uv_py_workspace(
     name = "ws",
     dependency_groups = {"test": ["pytest>=8.0"]},
-    deploy_uv_python = "cpython-3.12",
     env_providers = [
         ":cc_env",
         ":cargo_env",
@@ -60,6 +59,7 @@ uv_py_workspace(
     extra_pyproject_content = """
 tool.uv.no-binary-package = ["msgpack", "pydantic-core"]
 """,
+    host_python = "cpython-3.12",
     lock = "uv.lock",
     members = ["//app"],
 )

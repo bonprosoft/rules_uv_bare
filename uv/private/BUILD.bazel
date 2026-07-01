@@ -1,6 +1,4 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@rules_python//python:defs.bzl", "py_binary")
-load("//uv/private:py_runtime.bzl", "uv_py_runtime")
 
 exports_files(
     [
@@ -8,30 +6,21 @@ exports_files(
         "venv_activate.sh",
         "venv_entrypoint.sh.tpl",
         "deploy_copy.sh",
+        "workspace_tool.py",
+        "wheel_tool.py",
     ],
-    visibility = ["//visibility:public"],
-)
-
-py_binary(
-    name = "workspace_tool",
-    srcs = ["workspace_tool.py"],
-    visibility = ["//visibility:public"],
-)
-
-py_binary(
-    name = "wheel_tool",
-    srcs = ["wheel_tool.py"],
-    visibility = ["//visibility:public"],
-)
-
-uv_py_runtime(
-    name = "py_runtime",
     visibility = ["//visibility:public"],
 )
 
 bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],
+    visibility = ["//uv:__pkg__"],
+)
+
+bzl_library(
+    name = "paths",
+    srcs = ["paths.bzl"],
     visibility = ["//uv:__pkg__"],
 )
 
@@ -46,6 +35,7 @@ bzl_library(
     name = "entrypoint",
     srcs = ["entrypoint.bzl"],
     visibility = ["//uv:__pkg__"],
+    deps = [":paths"],
 )
 
 bzl_library(
@@ -72,14 +62,27 @@ bzl_library(
     name = "wheel",
     srcs = ["wheel.bzl"],
     visibility = ["//uv:__pkg__"],
-    deps = [":providers"],
+    deps = [
+        ":providers",
+        ":uv_env",
+    ],
 )
 
 bzl_library(
     name = "lock",
     srcs = ["lock.bzl"],
     visibility = ["//uv:__pkg__"],
-    deps = [":providers"],
+    deps = [
+        ":paths",
+        ":providers",
+        ":uv_env",
+    ],
+)
+
+bzl_library(
+    name = "uv_env",
+    srcs = ["uv_env.bzl"],
+    visibility = ["//uv:__pkg__"],
 )
 
 bzl_library(
@@ -88,6 +91,7 @@ bzl_library(
     visibility = ["//uv:__pkg__"],
     deps = [
         ":providers",
+        ":uv_env",
         "@platforms//host:constraints_lib",
         "@rules_shell//shell:rules_bzl",
     ],

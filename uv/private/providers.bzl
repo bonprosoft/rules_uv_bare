@@ -23,15 +23,6 @@ UvPyWheelInfo = provider(
     },
 )
 
-UvPyRuntimeInfo = provider(
-    "Python runtime info (for internal use only)",
-    fields = {
-        "interpreter_path": "Full path to the Python interpreter (for actions)",
-        "interpreter_short_path": "Short path to the Python interpreter",
-        "files": "Depset of Python runtime files",
-    },
-)
-
 UvBuildEnvInfo = provider(
     "Environment variables and toolchain files to forward to uv sync and wheel builds.",
     fields = {
@@ -50,5 +41,6 @@ UvPyManifestInfo = provider(
         "src_files": "Depset of source files",
         "data_files": "Depset of data files",
         "member_files": "Depset of all package files (pyproject + srcs + data) for direct and transitive members",
+        "host_python": "uv python key for the host interpreter",
     },
 )

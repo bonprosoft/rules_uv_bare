@@ -1,5 +1,9 @@
 """Workspace tool for rules_uv_bare."""
 
+# /// script
+# requires-python = ">=3.9"
+# ///
+
 from __future__ import annotations
 
 import argparse
@@ -8,7 +12,6 @@ import hashlib
 import json
 import os
 import pathlib
-import platform
 import shutil
 import subprocess
 import sys
@@ -36,14 +39,15 @@ class WheelEntry(TypedDict):
     variants: list[WheelVariant]
 
 
-class SharedManifest(TypedDict):
+class Manifest(TypedDict):
     ws_name: str
+    host_python: str
     python_requires: str
     lock_path: str
     lock_short_path: str
     packages: list[PackageEntry]
     wheels: list[WheelEntry]
-    dependency_groups: dict[str, list[str]] | None
+    dependency_groups: dict[str, list[str]]
     extra_pyproject_content: str
     environments: list[str]
 
@@ -51,19 +55,17 @@ class SharedManifest(TypedDict):
 class BuildConfig(TypedDict):
     wdir_path: str
     root_file_path: str
-    python_interpreter_path: str
     uv_path: str
 
 
-class ExecConfig(TypedDict):
-    exec_python_interpreter_short_path: str
+class RunfilesConfig(TypedDict):
     uv_short_path: str
 
 
 class DeployConfig(TypedDict):
     deploy_dir_path: str
     uv_path: str
-    uv_python_key: str
+    deploy_target_platform: str
     manylinux: str
     build_deps: list[str]
     bundle_python: bool
@@ -72,16 +74,12 @@ class DeployConfig(TypedDict):
 @dataclasses.dataclass(frozen=True)
 class ResolvedPython:
     key: str
+    implementation: str
     major: int
     minor: int
     os: str
     arch: str
     libc: str
-    is_cross_compile: bool
-
-    # Defined if `is_cross_compile = True`
-    uv_python_platform: str
-    platform_arch: str
 
     @property
     def version(self) -> str:
@@ -95,9 +93,9 @@ class _WheelFileEntry(TypedDict):
 
 def _resolve_output_dir(output_dir: str) -> str:
     # Resolve relative output_dir against user's working directory
-    bwd = os.environ.get("BUILD_WORKING_DIRECTORY")
-    if bwd and not os.path.isabs(output_dir):
-        output_dir = os.path.join(bwd, output_dir)
+    build_working_dir = os.environ.get("BUILD_WORKING_DIRECTORY")
+    if build_working_dir and not os.path.isabs(output_dir):
+        output_dir = os.path.join(build_working_dir, output_dir)
     return output_dir
 
 
@@ -108,6 +106,7 @@ def _resolve_exec_root_markers() -> None:
             os.environ[key] = value.replace(_EXEC_ROOT_MARKER, exec_root + "/")
 
 
+# NOTE: Bazel sets UV_CACHE_DIR via uv_env.bzl. This is just fallback for direct invocation.
 UV_CACHE_DIR = os.environ.get("UV_CACHE_DIR") or "/tmp/bazel-uv-cache"
 
 
@@ -152,11 +151,9 @@ def _generate_pyproject(
             sources_lines.append("]")
     sources_toml = "\n".join(sources_lines)
 
-    markers = environments or []
-
     lines = ["tool.uv.package = false"]
-    if markers:
-        env_entries = ", ".join(f'"{m}"' for m in markers)
+    if environments:
+        env_entries = ", ".join(f'"{m}"' for m in environments)
         lines.append(f"tool.uv.environments = [{env_entries}]")
 
     lines += [
@@ -227,8 +224,7 @@ def _setup_wheels(
                 src = pathlib.Path(v["path"]).resolve()
             filename = src.name
             dest = wheels_dir / filename
-            if dest.is_symlink() or dest.exists():
-                dest.unlink()
+            dest.unlink(missing_ok=True)
             if copy_wheel:
                 shutil.copy2(str(src), str(dest))
             else:
@@ -240,7 +236,7 @@ def _setup_wheels(
 
 def _setup_workspace_dir(
     wdir: pathlib.Path,
-    manifest: SharedManifest,
+    manifest: Manifest,
     runfiles_dir: str | None = None,
     copy_wheel: bool = False,
 ) -> dict[str, list[_WheelFileEntry]]:
@@ -268,7 +264,7 @@ def _setup_workspace_dir(
 
 def _relock_unfrozen_wheels(
     wdir: pathlib.Path,
-    manifest: SharedManifest,
+    manifest: Manifest,
     wheel_entries: dict[str, list[_WheelFileEntry]],
     uv_path: str,
     python_path: str,
@@ -302,13 +298,12 @@ def _relock_unfrozen_wheels(
     uv_lock_cmd = [uv_path, "lock", "--project", str(wdir)]
     for name in unfrozen_names:
         uv_lock_cmd += ["--upgrade-package", name]
-    uv_lock_cmd += ["--cache-dir", UV_CACHE_DIR]
     if python_path:
         uv_lock_cmd += ["--python", python_path]
     subprocess.check_call(uv_lock_cmd)
 
 
-def cmd_build(manifest: SharedManifest, config: BuildConfig) -> None:
+def cmd_build(manifest: Manifest, config: BuildConfig) -> None:
     uv_path = config["uv_path"]
     lock_path = pathlib.Path(manifest["lock_path"]).resolve()
     wdir = pathlib.Path(config["wdir_path"]).resolve()
@@ -316,14 +311,12 @@ def cmd_build(manifest: SharedManifest, config: BuildConfig) -> None:
     wheel_entries = _setup_workspace_dir(wdir, manifest)
     shutil.copy2(str(lock_path), str(wdir / "uv.lock"))
 
-    python_path = config["python_interpreter_path"]
+    python_path = _install_managed_python(uv_path, manifest["host_python"])
 
     _relock_unfrozen_wheels(wdir, manifest, wheel_entries, uv_path, python_path)
 
     uv_cmd = [uv_path, "sync", "--frozen", "--all-groups", "--project", str(wdir)]
-    uv_cmd += ["--cache-dir", UV_CACHE_DIR]
-    if python_path:
-        uv_cmd += ["--python", python_path]
+    uv_cmd += ["--python", python_path]
     subprocess.check_call(uv_cmd)
 
     # Remove .source/ symlinks.
@@ -336,7 +329,7 @@ def cmd_build(manifest: SharedManifest, config: BuildConfig) -> None:
     pathlib.Path(config["root_file_path"]).write_text(f"{wdir}\n")
 
 
-def cmd_lock(manifest: SharedManifest, config: ExecConfig, runfiles_dir: str) -> None:
+def cmd_lock(manifest: Manifest, config: RunfilesConfig, runfiles_dir: str) -> None:
     uv_path = os.path.join(runfiles_dir, config["uv_short_path"])
     lock_real = pathlib.Path(
         os.path.join(runfiles_dir, manifest["lock_short_path"])
@@ -352,10 +345,7 @@ def cmd_lock(manifest: SharedManifest, config: ExecConfig, runfiles_dir: str) ->
             shutil.copy2(str(lock_real), str(wdir / "uv.lock"))
             had_old_lock = True
 
-        python_short_path = config["exec_python_interpreter_short_path"]
-        python_path = (
-            os.path.join(runfiles_dir, python_short_path) if python_short_path else ""
-        )
+        python_path = _install_managed_python(uv_path, manifest["host_python"])
         uv_lock_cmd = [uv_path, "lock"]
         # Without --upgrade-package, uv skips re-resolving wheels whose version
         # hasn't changed, so content hash changes (e.g. rebuilt native wheels)
@@ -363,8 +353,7 @@ def cmd_lock(manifest: SharedManifest, config: ExecConfig, runfiles_dir: str) ->
         # https://github.com/astral-sh/uv/blob/8c8a90306b70f03bc8388a99fae0aba984ad685c/crates/uv-resolver/src/lock/mod.rs#L1654
         for w in manifest["wheels"]:
             uv_lock_cmd += ["--upgrade-package", w["name"]]
-        if python_path:
-            uv_lock_cmd += ["--python", python_path]
+        uv_lock_cmd += ["--python", python_path]
         result = subprocess.run(uv_lock_cmd, cwd=str(wdir))
         if result.returncode != 0 and had_old_lock:
             (wdir / "uv.lock").unlink(missing_ok=True)
@@ -378,8 +367,7 @@ def cmd_lock(manifest: SharedManifest, config: ExecConfig, runfiles_dir: str) ->
 
 
 def cmd_export(
-    manifest: SharedManifest,
-    config: ExecConfig,
+    manifest: Manifest,
     runfiles_dir: str,
     output_dir: str,
 ) -> None:
@@ -410,7 +398,6 @@ def _create_relocatable_venv(
         python_path,
         str(deploy_dir),
     ]
-    cmd += ["--cache-dir", UV_CACHE_DIR]
     subprocess.check_call(cmd)
 
 
@@ -422,12 +409,11 @@ def _setup_build_tools_venv(
 ) -> tuple[str, str]:
     # Create a host-platform build-tools venv. Returns (site_packages, bin).
     venv_cmd = [uv_path, "venv", "--python", python_path, str(build_venv)]
-    venv_cmd += ["--cache-dir", UV_CACHE_DIR]
     subprocess.check_call(venv_cmd)
 
     build_python = str(build_venv / "bin" / "python")
     install_cmd = [uv_path, "pip", "install", "--python", build_python]
-    install_cmd += sorted(build_deps) + ["--cache-dir", UV_CACHE_DIR]
+    install_cmd += sorted(build_deps)
     subprocess.check_call(install_cmd)
 
     site_packages = subprocess.check_output(
@@ -437,28 +423,8 @@ def _setup_build_tools_venv(
     return site_packages, str(build_venv / "bin")
 
 
-def _host_os_arch() -> tuple[str, str]:
-    raw_os = sys.platform
-    if raw_os == "darwin":
-        host_os = "macos"
-    elif raw_os.startswith("linux"):
-        host_os = "linux"
-    else:
-        host_os = raw_os
-
-    raw_arch = platform.machine().lower()
-    host_arch = {"arm64": "aarch64", "amd64": "x86_64"}.get(raw_arch, raw_arch)
-    return host_os, host_arch
-
-
-def _resolve_uv_python(uv_path: str, key: str, manylinux: str) -> ResolvedPython:
-    if not key:
-        raise SystemExit(
-            "deploy_uv_python is required for the .deploy target. "
-            'Set it on uv_py_workspace (e.g. deploy_uv_python = "cpython-3.12" '
-            'or a cross-compile key like "cpython-3.12-linux-aarch64-gnu").'
-        )
-
+def _resolve_uv_python(uv_path: str, key: str) -> ResolvedPython:
+    assert key
     entries = json.loads(
         subprocess.check_output(
             [uv_path, "python", "list", "--output-format", "json", key],
@@ -472,71 +438,58 @@ def _resolve_uv_python(uv_path: str, key: str, manylinux: str) -> ResolvedPython
         )
     entry = entries[0]
 
-    major = int(entry["version_parts"]["major"])
-    minor = int(entry["version_parts"]["minor"])
-    target_os = entry["os"]
-    target_arch = entry["arch"]
-    libc = entry["libc"]
-
-    host_os, host_arch = _host_os_arch()
-    is_cross = (target_os, target_arch) != (host_os, host_arch)
-
-    uv_python_platform = ""
-    target_platform_arch = target_arch
-    if is_cross:
-        if target_os == "linux" and libc == "gnu":
-            baseline = manylinux or "manylinux2014"
-            uv_python_platform = f"{target_arch}-{baseline}"
-        elif target_os == "linux" and libc == "musl":
-            uv_python_platform = f"{target_arch}-unknown-linux-musl"
-        elif target_os == "macos":
-            uv_python_platform = f"{target_arch}-apple-darwin"
-            if target_arch == "aarch64":
-                target_platform_arch = "arm64"
-        else:
-            raise SystemExit(
-                f"Unsupported cross-compile target for key {key!r}: os={target_os} libc={libc}"
-            )
-
     return ResolvedPython(
         key=entry["key"],
-        major=major,
-        minor=minor,
-        os=target_os,
-        arch=target_arch,
-        libc=libc,
-        is_cross_compile=is_cross,
-        uv_python_platform=uv_python_platform,
-        platform_arch=target_platform_arch,
+        implementation=entry["implementation"],
+        major=int(entry["version_parts"]["major"]),
+        minor=int(entry["version_parts"]["minor"]),
+        os=entry["os"],
+        arch=entry["arch"],
+        libc=entry["libc"],
     )
+
+
+def _uv_python_platform_for_target(target: ResolvedPython, manylinux: str) -> str:
+    # Return uv's --python-platform string for a cross-compile target.
+    if target.os == "linux" and target.libc == "gnu":
+        baseline = manylinux or "manylinux2014"
+        return f"{target.arch}-{baseline}"
+    if target.os == "linux" and target.libc == "musl":
+        return f"{target.arch}-unknown-linux-musl"
+    if target.os == "macos":
+        return f"{target.arch}-apple-darwin"
+    raise SystemExit(
+        f"Unsupported cross-compile target {target.key!r}: os={target.os} libc={target.libc}"
+    )
+
+
+def _install_managed_python(uv_path: str, key: str) -> str:
+    # Install a uv-managed Python idempotently and return its interpreter path.
+    subprocess.check_call([uv_path, "python", "install", "--no-bin", key])
+    out = subprocess.check_output([uv_path, "python", "find", key], text=True)
+    return str(pathlib.Path(out.strip()).resolve())
 
 
 def _install_python(
     uv_path: str,
     install_dir: pathlib.Path,
-    key: str,
+    resolved_key: str,
 ) -> pathlib.Path:
-    cmd = [uv_path, "python", "install", "--no-bin", "-i", str(install_dir), key]
-    cmd += ["--cache-dir", UV_CACHE_DIR]
+    # `resolved_key` must be the canonical key from _resolve_uv_python so it
+    # matches the on-disk install-dir name.
+    cmd = [uv_path, "python", "install", "--no-bin", "-i", str(install_dir), resolved_key]
     subprocess.check_call(cmd)
 
-    # uv creates both the full-version install dir and a version-shorthand
-    # symlink next to it; drop the symlink so the deploy artifact is minimal.
-    result = None
+    # Drop shorthand symlinks (e.g. "cpython-3.12" -> full-key dir) so the
+    # deploy artifact stays minimal.
     for d in install_dir.iterdir():
-        if not d.name.startswith("cpython"):
-            continue
         if d.is_symlink():
             d.unlink()
-            continue
-        if not d.is_dir():
-            continue
-        python_bin = d / "bin" / "python3"
-        if python_bin.exists() or python_bin.is_symlink():
-            result = python_bin
-    if result:
-        return result
-    raise RuntimeError(f"No cpython installation found in {install_dir}")
+
+    python_bin = install_dir / resolved_key / "bin" / "python3"
+    if not python_bin.exists():
+        raise RuntimeError(f"No Python installation found at {python_bin}")
+    return python_bin
 
 
 def _read_target_sysconfig(
@@ -561,37 +514,37 @@ def _read_target_sysconfig(
     )
 
 
+def _clear_python_links(bin_dir: pathlib.Path) -> None:
+    for p in bin_dir.glob("python*"):
+        if p.is_symlink() or p.is_file():
+            p.unlink()
+
+
+def _link_python_aliases(bin_dir: pathlib.Path, minor: int) -> None:
+    (bin_dir / "python").symlink_to("python3")
+    (bin_dir / f"python3.{minor}").symlink_to("python3")
+
+
 def _link_bundled_python(
     deploy_dir: pathlib.Path,
     installed_key: str,
     minor: int,
 ) -> None:
-    bin_dir = deploy_dir / "bin"
-    for p in bin_dir.glob("python*"):
-        if p.is_symlink() or p.is_file():
-            p.unlink()
+    assert (deploy_dir / "python").is_dir()
 
+    bin_dir = deploy_dir / "bin"
+    _clear_python_links(bin_dir)
     rel = pathlib.Path("..") / "python" / installed_key / "bin" / f"python3.{minor}"
     (bin_dir / "python3").symlink_to(rel)
-    (bin_dir / "python").symlink_to("python3")
-    (bin_dir / f"python3.{minor}").symlink_to("python3")
-
-
-def _remove_venv_python_links(deploy_dir: pathlib.Path) -> None:
-    # Without a bundled interpreter, uv's relocatable-venv python symlinks
-    # point at a temp-dir that is about to be deleted. Remove them so the
-    # deploy artifact has no dangling symlinks; the caller is expected to
-    # provide bin/python3 at runtime.
-    bin_dir = deploy_dir / "bin"
-    for p in bin_dir.glob("python*"):
-        if p.is_symlink() or p.is_file():
-            p.unlink()
+    _link_python_aliases(bin_dir, minor)
 
 
 def _install_host_python_shim(deploy_dir: pathlib.Path, minor: int) -> None:
-    _remove_venv_python_links(deploy_dir)
-
+    # Without a bundled interpreter, uv's relocatable-venv python links point at
+    # a temp dir about to be deleted. Replace them with a shim that finds a host
+    # python3 at runtime, so the deploy artifact has no dangling symlinks.
     bin_dir = deploy_dir / "bin"
+    _clear_python_links(bin_dir)
     shim_path = bin_dir / "python3"
     shim_path.write_text(
         rf"""#!/bin/bash
@@ -642,8 +595,7 @@ exit 127
     )
     shim_path.chmod(0o755)
 
-    (bin_dir / "python").symlink_to("python3")
-    (bin_dir / f"python3.{minor}").symlink_to("python3")
+    _link_python_aliases(bin_dir, minor)
 
 
 def _configure_build_env(
@@ -651,16 +603,16 @@ def _configure_build_env(
     wdir: pathlib.Path,
     host_python_bin: pathlib.Path,
     target_python_bin: pathlib.Path,
-    resolved: ResolvedPython,
+    target: ResolvedPython,
+    is_cross: bool,
     build_deps: list[str],
 ) -> dict[str, str]:
-    # Build env for uv sync.
-    # Adds cross-compile flags when resolved.is_cross_compile.
+    # Build env for uv sync. Adds cross-compile flags when is_cross.
     build_env = os.environ.copy()
     build_env.pop("VIRTUAL_ENV", None)
     build_env["UV_NO_MANAGED_PYTHON"] = "1"
 
-    if not resolved.is_cross_compile:
+    if not is_cross:
         return build_env
 
     target_python_prefix = target_python_bin.parents[1]
@@ -669,20 +621,22 @@ def _configure_build_env(
     sysconfig = _read_target_sysconfig(
         host_python_bin,
         target_python_prefix,
-        resolved.minor,
+        target.minor,
         ["LDSHARED", "CCSHARED", "MACOSX_DEPLOYMENT_TARGET", "EXT_SUFFIX"],
     )
 
     macosx_dt = sysconfig.get("MACOSX_DEPLOYMENT_TARGET", "")
-    if resolved.os == "macos":
+    if target.os == "macos":
+        # Python's platform string uses "arm64" where uv/Bazel use "aarch64".
+        platform_arch = "arm64" if target.arch == "aarch64" else target.arch
         # macOS host platform needs the deployment-target version from sysconfig.
         host_platform = (
-            f"macosx-{macosx_dt}-{resolved.platform_arch}"
+            f"macosx-{macosx_dt}-{platform_arch}"
             if macosx_dt
-            else f"macosx-11.0-{resolved.platform_arch}"
+            else f"macosx-11.0-{platform_arch}"
         )
     else:
-        host_platform = f"{resolved.os}-{resolved.platform_arch}"
+        host_platform = f"{target.os}-{target.arch}"
     build_env["_PYTHON_HOST_PLATFORM"] = host_platform
 
     ext_suffix = sysconfig.get("EXT_SUFFIX", "")
@@ -703,7 +657,7 @@ def _configure_build_env(
 
     # On macOS, -mmacosx-version-min is appended AFTER the toolchain's flags
     # so it overrides the toolchain default.
-    include_path = target_python_prefix / "include" / f"python3.{resolved.minor}"
+    include_path = target_python_prefix / "include" / f"python3.{target.minor}"
     if include_path.is_dir():
         ccshared = sysconfig.get("CCSHARED", "")
         prefix = " ".join(filter(None, [f"-I{include_path}", ccshared]))
@@ -764,21 +718,30 @@ def _prime_uv_interpreter_cache(
     )
 
 
-def cmd_deploy(manifest: SharedManifest, config: DeployConfig) -> None:
+def cmd_deploy(manifest: Manifest, config: DeployConfig) -> None:
     uv_path = str(pathlib.Path(config["uv_path"]).resolve())
     # deploy_dir must be absolute since uv resolves UV_PROJECT_ENVIRONMENT
     # relative to --project.
     deploy_dir = pathlib.Path(config["deploy_dir_path"]).resolve()
     lock_path = pathlib.Path(manifest["lock_path"])
 
-    resolved = _resolve_uv_python(
-        uv_path,
-        config["uv_python_key"],
-        config["manylinux"],
-    )
-    target_key = resolved.key
-    host_key = f"cpython-{resolved.version}"
-    bundle_python = config.get("bundle_python", True)
+    if not manifest["host_python"]:
+        raise SystemExit(
+            "uv python key is empty. Set host_python on uv_py_workspace "
+            '(e.g. host_python = "cpython-3.12").'
+        )
+
+    host = _resolve_uv_python(uv_path, manifest["host_python"])
+    target = host
+    is_cross = False
+
+    deploy_target_platform = config["deploy_target_platform"]
+    if deploy_target_platform:
+        target_key = f"{host.implementation}-{host.version}-{deploy_target_platform}"
+        target = _resolve_uv_python(uv_path, target_key)
+        is_cross = (host.os, host.arch) != (target.os, target.arch)
+
+    bundle_python = config["bundle_python"]
 
     with tempfile.TemporaryDirectory() as tmpdir:
         wdir = pathlib.Path(tmpdir)
@@ -787,34 +750,38 @@ def cmd_deploy(manifest: SharedManifest, config: DeployConfig) -> None:
 
         if bundle_python:
             target_python_bin = _install_python(
-                uv_path, deploy_dir / "python", target_key
+                uv_path, deploy_dir / "python", target.key
             )
         else:
             # Install the target interpreter into the temp dir.
             # Even if `bundle_python` is False, the target python is needed to read sysconfig data.
             target_python_bin = _install_python(
-                uv_path, wdir / ".target_python", target_key
+                uv_path, wdir / ".target_python", target.key
             )
 
-        if not resolved.is_cross_compile:
-            host_python_bin = target_python_bin.resolve()
-        else:
+        # WARNING: host_python_bin must be a NON-managed interpreter. Creating the
+        # venv with a uv-managed interpreter would make `uv sync` remove deploy_dir.
+        # Non-cross: the bundled interpreter is host-runnable and non-managed.
+        host_python_bin = target_python_bin.resolve()
+
+        if is_cross:
+            # Cross-compile: the target interpreter can't run on the host, so
+            # install a host-arch interpreter into a temp, non-managed dir.
             host_python_bin = _install_python(
-                uv_path, wdir / ".host_python", host_key
+                uv_path, wdir / ".host_python", host.key
             ).resolve()
 
-        target_python_dir_name = target_python_bin.parents[1].name
         _relock_unfrozen_wheels(
             wdir, manifest, wheel_entries, uv_path, str(host_python_bin)
         )
-
         build_env = _configure_build_env(
             uv_path,
             wdir,
             host_python_bin,
             target_python_bin,
-            resolved,
-            config.get("build_deps", []),
+            target,
+            is_cross,
+            config["build_deps"],
         )
 
         # Create venv into deploy_dir with **host_python_bin**.
@@ -834,25 +801,26 @@ def cmd_deploy(manifest: SharedManifest, config: DeployConfig) -> None:
             "--project",
             str(wdir),
         ]
-        if resolved.is_cross_compile:
-            uv_python_platform = resolved.uv_python_platform
+        if is_cross:
+            uv_python_platform = _uv_python_platform_for_target(target, config["manylinux"])
             sync_cmd += ["--python-platform", uv_python_platform]
             # Build isolation would install target-platform build tools (e.g.
             # uv-build for aarch64) and try to execute them on the host. Use
             # the host-arch .build_venv via PYTHONPATH in build_env instead.
             sync_cmd += ["--no-build-isolation"]
+            # Isolate the cross-compile cache from the host cache: same
+            # (host_python, target_platform) key would map to different wheels.
             platform_cache = f"{UV_CACHE_DIR}/{uv_python_platform}"
             sync_cmd += ["--cache-dir", platform_cache]
             _prime_uv_interpreter_cache(uv_path, deploy_dir, platform_cache)
-        else:
-            sync_cmd += ["--cache-dir", UV_CACHE_DIR]
 
         subprocess.check_call(sync_cmd, env=build_env)
 
         if bundle_python:
-            _link_bundled_python(deploy_dir, target_python_dir_name, resolved.minor)
+            python_dir_name = target_python_bin.parents[1].name
+            _link_bundled_python(deploy_dir, python_dir_name, target.minor)
         else:
-            _install_host_python_shim(deploy_dir, resolved.minor)
+            _install_host_python_shim(deploy_dir, target.minor)
 
 
 def main() -> None:
@@ -898,6 +866,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Cache uv-managed Pythons next to the uv cache.
+    # Allows install to be idempotent across actions and `uv python find` to locate the result.
+    os.environ.setdefault("UV_CACHE_DIR", UV_CACHE_DIR)
+    os.environ.setdefault("UV_PYTHON_INSTALL_DIR", f"{UV_CACHE_DIR}/python")
+
     # Replace $$EXEC_ROOT$$/ markers in env vars set by Bazel so subprocesses see absolute paths.
     _resolve_exec_root_markers()
 
@@ -911,7 +884,7 @@ def main() -> None:
     elif args.command == "lock":
         cmd_lock(manifest, config, args.runfiles_dir)
     elif args.command == "export":
-        cmd_export(manifest, config, args.runfiles_dir, args.output_dir)
+        cmd_export(manifest, args.runfiles_dir, args.output_dir)
     elif args.command == "deploy":
         cmd_deploy(manifest, config)
 

@@ -5,13 +5,12 @@ uv_py_workspace(
     dependency_groups = {"test": ["pytest>=8.0"]},
     # Do not bundle Python interpreter at `.deploy` target.
     deploy_bundle_python = False,
-    deploy_uv_python = "cpython-3.12",
+    host_python = "cpython-3.12",
     lock = "uv.lock",
     members = [
         "//lib",
         "//app",
     ],
-    python_requires = ">=3.11",
 )
 
 uv_py_lock(
