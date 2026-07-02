@@ -51,7 +51,7 @@ def _uv_py_workspace_exec_impl(ctx):
     )
 
     runfiles = ctx.runfiles(
-        files = [info.lock_file, info.manifest_file, config_file, ctx.file._workspace_tool_py] + info.wheel_files,
+        files = [info.lock_file, info.manifest_file, config_file, ctx.file._workspace_tool_py] + info.wheel_inputs,
         transitive_files = info.member_files,
     )
     runfiles = runfiles.merge(ctx.attr._uv[DefaultInfo].default_runfiles)

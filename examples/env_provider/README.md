@@ -4,7 +4,7 @@ Demonstrates custom `UvBuildEnvInfo` providers that inject environment variables
 
 ## How it works
 
-`uv_py_workspace` accepts an `env_providers` attribute, which is a list of targets that return `UvBuildEnvInfo`.
+`uv_py_workspace` accepts an `build_env_deps` attribute, which is a list of targets that return `UvBuildEnvInfo`.
 Each provider supplies environment variables (and optionally toolchain files) that are merged and passed to `uv sync`.
 
 This example uses two providers:

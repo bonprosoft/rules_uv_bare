@@ -169,14 +169,14 @@ bazel run //:run
 bazel test //:test
 
 # Build self-contained deploy (slower)
-bazel build //:my_workspace.deploy
-bazel run //:run.deploy
+bazel build //:my_workspace.bundle
+bazel run //:run.bundle
 ```
 
-The `.deploy` target bundles a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter matching `host_python` (or `host_python` combined with `deploy_target_platform` for cross-compilation).
+The `.bundle` target bundles a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter matching `host_python` (or `host_python` combined with `bundle_target_platform` for cross-compilation).
 The build artifact is fully self-contained and does not require Python on the target host.
 
-`.deploy` sub-targets (`<workspace>.deploy`, `<entrypoint>.deploy`, and any `uv_py_deploy` target) are tagged `manual`, so `bazel build //...` skips them.
+`.bundle` sub-targets (`<workspace>.bundle`, `<entrypoint>.bundle`, and any `uv_py_deploy` target) are tagged `manual`, so `bazel build //...` skips them.
 
 ## Rules Reference
 
@@ -278,7 +278,7 @@ See `examples/import_from_rules_python/` for more details.
 You can find examples for native build / cross-platform deployment:
 
 - `examples/native/`: first-party native wheel (nanobind) + third-party source build
-- `examples/native_cross/`: same as `native` with cross-platform `target_platforms`
+- `examples/native_cross/`: same as `native` with cross-platform `platform_markers`
 - `examples/env_provider/`: custom `UvBuildEnvInfo` providers
 
 ### First-party native packages
@@ -288,7 +288,7 @@ If your Python package requires native compilation (C/C++ extensions), it can be
 ### Third-party native packages
 
 When third-party Python packages need native compilation, the build tools must be available during `uv sync`.
-The `env_providers` attribute on `uv_py_workspace` allows you to forward toolchains as environment variables.
+The `build_env_deps` attribute on `uv_py_workspace` allows you to forward toolchains as environment variables.
 
 For example, a built-in `uv_cc_env` rule resolves the Bazel CC toolchain and provides `CC`, `CXX`, `AR`, `LD`, and `PATH`:
 
@@ -299,7 +299,7 @@ uv_cc_env(name = "cc_env")
 
 uv_py_workspace(
     name = "ws",
-    env_providers = [":cc_env"],
+    build_env_deps = [":cc_env"],
     # ...
 )
 ```
@@ -309,32 +309,32 @@ You can also pass the `env` attribute directly to override environment variables
 
 ### Multi-platform lock file
 
-When `target_platforms` is passed to `uv_py_workspace`, it creates a single unified `uv.lock` covering all listed platforms (just as uv does).
+When `platform_markers` is passed to `uv_py_workspace`, it creates a single unified `uv.lock` covering all listed platforms (just as uv does).
 Internally, it uses Bazel split transitions to build each wheel once per target platform, and writes marker-qualified `[tool.uv.sources]` entries (e.g. `platform_machine == 'x86_64'`) so that uv picks the correct wheel for each platform from one lock file.
 
 ### Cross-compilation deploy
 
-The `.deploy` target supports cross-compilation.
+The `.bundle` target supports cross-compilation.
 It bundles a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter for the target platform, so the output is fully self-contained.
 
 `host_python` is always required; specify one that works in your **host** environment, even when cross-compiling (e.g., `cpython-3.12`, or `cpython-3.12.3-linux-x86_64-gnu` if you are on Linux x86_64).
 
-For the non-cross-compile case, leave `deploy_target_platform` unset.
-For cross-compilation, set `deploy_target_platform` to **just the platform suffix** `{os}-{arch}-{libc}`.
+For the non-cross-compile case, leave `bundle_target_platform` unset.
+For cross-compilation, set `bundle_target_platform` to **just the platform suffix** `{os}-{arch}-{libc}`.
 
 See `uv python list --all-platforms --all-arches` for examples.
 
 ```python
 uv_py_workspace(
     name = "ws",
-    env_providers = [":cc_env"],
+    build_env_deps = [":cc_env"],
     host_python = "cpython-3.12",
-    deploy_target_platform = select({
+    bundle_target_platform = select({
         ":is_linux_x86_64": "linux-x86_64-gnu",
         ":is_linux_aarch64": "linux-aarch64-gnu",
         ":is_darwin_aarch64": "macos-aarch64-none",
     }),
-    deploy_build_deps = ["setuptools", "wheel", "uv-build>=0.7"],
+    bundle_build_deps = ["setuptools", "wheel", "uv-build>=0.7"],
     # ...
 )
 ```
@@ -342,9 +342,9 @@ uv_py_workspace(
 | Attribute | Purpose | Example value |
 |-----------|---------|---------------|
 | `host_python` | uv python key for the host interpreter. | `"cpython-3.12"`, `"cpython-3.12.5"` |
-| `deploy_target_platform` | Platform suffix for deploy. Empty (default) = host. | `"linux-aarch64-gnu"`, `"macos-aarch64-none"` |
-| `deploy_manylinux` | Optional manylinux baseline override for Linux+gnu cross-compile. Default `manylinux2014` (glibc 2.17). | `"manylinux_2_28"` |
-| `deploy_build_deps` | Build backends to pre-install | `["setuptools", "wheel"]` |
+| `bundle_target_platform` | Platform suffix for deploy. Empty (default) = host. | `"linux-aarch64-gnu"`, `"macos-aarch64-none"` |
+| `bundle_manylinux` | Optional manylinux baseline override for Linux+gnu cross-compile. Default `manylinux2014` (glibc 2.17). | `"manylinux_2_28"` |
+| `bundle_build_deps` | Build backends to pre-install | `["setuptools", "wheel"]` |
 
 ### The `$$EXEC_ROOT$$` path marker
 

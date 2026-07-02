@@ -32,7 +32,7 @@ define run_example
 	bazel clean --expunge >/dev/null 2>&1; \
 	bazel build //:ws //:ws.lock //:ws.export; \
 	bazel run //:run; \
-	bazel run //:run.deploy; \
+	bazel run //:run.bundle; \
 	bazel test //:test; \
 	chmod -R +w /tmp/deploy_test_$(1) 2>/dev/null || true; \
 	rm -rf /tmp/deploy_test_$(1); \
@@ -46,7 +46,7 @@ endef
 $(EXAMPLES):
 	$(call run_example,$@)
 
-# native_cross cross-platform matrix: build //:ws.deploy for each target
+# native_cross cross-platform matrix: build //:ws.bundle for each target
 # platform, then verify that msgpack + native_lib .so files and the deployed
 # bin/python3 all have the requested architecture.
 cross: $(CROSS_TARGETS)
@@ -65,8 +65,8 @@ $(CROSS_TARGETS):
 	fi; \
 	cd native_cross; \
 	bazel clean --expunge >/dev/null 2>&1; \
-	bazel build --platforms=//:$$plat //:ws.deploy; \
-	site=bazel-bin/ws.deploy_dir/lib/python3.12/site-packages; \
+	bazel build --platforms=//:$$plat //:ws.bundle; \
+	site=bazel-bin/ws.bundle_dir/lib/python3.12/site-packages; \
 	ls   $$site/msgpack/*.so    | grep -q "$$suffix" || { echo "FAIL: msgpack .so suffix != $$suffix" >&2; exit 1; }; \
 	file $$site/msgpack/*.so    | grep -q "$$arch"   || { echo "FAIL: msgpack .so not $$arch" >&2; exit 1; }; \
 	file $$site/native_lib/*.so | grep -q "$$arch"   || { echo "FAIL: native_lib .so not $$arch" >&2; exit 1; }; \

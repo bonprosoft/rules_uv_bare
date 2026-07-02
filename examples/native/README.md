@@ -9,7 +9,7 @@ Demonstrates two ways of working with native code in a uv workspace:
 
 2. **Third-party source build**: `msgpack` from PyPI is compiled from source
    (`tool.uv.no-binary-package`), with the Bazel CC toolchain forwarded to
-   `uv sync` through `uv_cc_env` + `env_providers`.
+   `uv sync` through `uv_cc_env` + `build_env_deps`.
 
 ## Usage
 

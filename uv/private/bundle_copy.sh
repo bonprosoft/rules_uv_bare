@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-DEPLOY_DIR="$1"
+BUNDLE_DIR="$1"
 shift
 
 if [ $# -eq 0 ]; then
@@ -18,8 +18,8 @@ if [ -n "${BUILD_WORKING_DIRECTORY:-}" ]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-cp -RPp "$DEPLOY_DIR"/* "$OUTPUT_DIR/"
+cp -RPp "$BUNDLE_DIR"/* "$OUTPUT_DIR/"
 # Bazel action outputs are read-only (555/444)
-# Restore owner-write so the deployed tree behaves like a normal directory.
+# Restore owner-write so the copied tree behaves like a normal directory.
 chmod -R u+w "$OUTPUT_DIR"
-echo "Deployed to $OUTPUT_DIR"
+echo "Installed to $OUTPUT_DIR"

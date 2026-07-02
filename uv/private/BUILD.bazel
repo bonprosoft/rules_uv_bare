@@ -5,7 +5,7 @@ exports_files(
         "venv_run.sh",
         "venv_activate.sh",
         "venv_entrypoint.sh.tpl",
-        "deploy_copy.sh",
+        "bundle_copy.sh",
         "workspace_tool.py",
         "wheel_tool.py",
     ],
@@ -28,7 +28,7 @@ bzl_library(
     name = "deploy",
     srcs = ["deploy.bzl"],
     visibility = ["//uv:__pkg__"],
-    deps = [":providers"],
+    deps = ["@rules_shell//shell:rules_bzl"],
 )
 
 bzl_library(
