@@ -10,9 +10,6 @@ bazel_dep(name = "nanobind_bazel", version = "2.10.2")
 bazel_dep(name = "toolchains_llvm_bootstrapped", version = "0.5.9")
 bazel_dep(name = "platforms", version = "1.0.0")
 
-python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(python_version = "3.12")
-
 local_path_override(
     module_name = "rules_uv_bare",
     path = "../..",

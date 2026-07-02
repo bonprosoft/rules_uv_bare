@@ -61,19 +61,19 @@ uv_py_workspace(
         "wheel",
         "uv-build>=0.7.19,<0.8",
     ],
-    deploy_uv_python = select({
-        ":is_linux_x86_64": "cpython-3.12-linux-x86_64-gnu",
-        ":is_linux_aarch64": "cpython-3.12-linux-aarch64-gnu",
-        ":is_darwin_aarch64": "cpython-3.12-macos-aarch64-none",
+    deploy_target_platform = select({
+        ":is_linux_x86_64": "linux-x86_64-gnu",
+        ":is_linux_aarch64": "linux-aarch64-gnu",
+        ":is_darwin_aarch64": "macos-aarch64-none",
     }),
     env_providers = [":cc_env"],
     # Force msgpack to build from source for demonstration.
     extra_pyproject_content = """
 tool.uv.no-binary-package = ["msgpack"]
 """,
+    host_python = "cpython-3.12",
     lock = "uv.lock",
     members = ["//app"],
-    python_requires = ">=3.12",
     target_platforms = {
         ":linux_x86_64": "platform_machine == 'x86_64' and sys_platform == 'linux'",
         ":linux_aarch64": "platform_machine == 'aarch64' and sys_platform == 'linux'",

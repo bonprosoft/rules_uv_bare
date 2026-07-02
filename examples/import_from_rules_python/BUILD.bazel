@@ -10,10 +10,9 @@ uv_py_import_wheel(
 uv_py_workspace(
     name = "ws",
     dependency_groups = {"test": ["pytest>=8.0"]},
-    deploy_uv_python = "cpython-3.12",
+    host_python = "cpython-3.12",
     lock = "uv.lock",
     members = ["//app"],
-    python_requires = ">=3.12",
 )
 
 uv_py_lock(

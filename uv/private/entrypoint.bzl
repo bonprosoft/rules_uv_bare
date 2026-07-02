@@ -1,22 +1,17 @@
 """uv_py_entrypoint and uv_py_test rules."""
 
+load("//uv/private:paths.bzl", "rlocation_key")
+
 def _shell_double_quote(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`") + '"'
 
-def _uv_py_venv_target_impl(ctx):
+def _uv_py_venv_impl(ctx):
     workspace_file = ctx.attr.workspace[DefaultInfo].files.to_list()[0]
 
     # Wrap each element with double-quote so $(rlocation ...) will be expanded.
     cmd_str = " ".join([_shell_double_quote(c) for c in ctx.attr.cmd])
 
-    # Files in an external repository have a short_path of the form
-    # "../<repo>/<path>", whose canonical runfiles (rlocation) key is
-    # "<repo>/<path>". Prepending ctx.workspace_name would instead yield the
-    # non-normalized "<workspace>/../<repo>/<path>", which rlocation rejects.
-    if workspace_file.short_path.startswith("../"):
-        rlocation_path = workspace_file.short_path[len("../"):]
-    else:
-        rlocation_path = ctx.workspace_name + "/" + workspace_file.short_path
+    rlocation_path = rlocation_key(workspace_file.short_path, ctx.workspace_name)
 
     if ctx.attr.deploy:
         # Deploy mode: workspace_file is the venv directory artifact.
@@ -62,13 +57,13 @@ _COMMON_ATTRS = {
 }
 
 _uv_py_entrypoint_rule = rule(
-    implementation = _uv_py_venv_target_impl,
+    implementation = _uv_py_venv_impl,
     executable = True,
     attrs = _COMMON_ATTRS,
 )
 
-_uv_py_venv_test = rule(
-    implementation = _uv_py_venv_target_impl,
+_uv_py_entrypoint_test = rule(
+    implementation = _uv_py_venv_impl,
     test = True,
     attrs = _COMMON_ATTRS,
 )
@@ -126,4 +121,4 @@ def uv_py_test(name, workspace, cmd, **kwargs):
         **kwargs: additional arguments forwarded to the underlying rule.
     """
     tags = kwargs.pop("tags", []) + ["local"]
-    _uv_py_venv_test(name = name, workspace = workspace, cmd = cmd, tags = tags, **kwargs)
+    _uv_py_entrypoint_test(name = name, workspace = workspace, cmd = cmd, tags = tags, **kwargs)

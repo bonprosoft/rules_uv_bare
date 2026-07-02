@@ -346,7 +346,7 @@ uv_py_test(
 <pre>
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_wheel")
 
-uv_py_wheel(<a href="#uv_py_wheel-name">name</a>, <a href="#uv_py_wheel-package">package</a>, <a href="#uv_py_wheel-visibility">visibility</a>)
+uv_py_wheel(<a href="#uv_py_wheel-name">name</a>, <a href="#uv_py_wheel-package">package</a>, <a href="#uv_py_wheel-workspace">workspace</a>, <a href="#uv_py_wheel-visibility">visibility</a>)
 </pre>
 
 Builds a .whl from a uv_py_package target.
@@ -368,6 +368,7 @@ uv_py_wheel(
 | :------------- | :------------- | :------------- |
 | <a id="uv_py_wheel-name"></a>name |  target name.   |  none |
 | <a id="uv_py_wheel-package"></a>package |  uv_py_package target to build.   |  none |
+| <a id="uv_py_wheel-workspace"></a>workspace |  optional ``uv_py_workspace`` target. When set, the wheel is built with that workspace's ``host_python`` via ``uv build --python <path>``. When unset (default), ``uv build`` is run without ``--python`` and uv auto-discovers an interpreter, which is sufficient for pure-Python wheels. Set this when the package has a native extension that should pin a specific Python ABI.   |  `None` |
 | <a id="uv_py_wheel-visibility"></a>visibility |  Bazel visibility.   |  `["//visibility:public"]` |
 
 
@@ -378,10 +379,10 @@ uv_py_wheel(
 <pre>
 load("@rules_uv_bare//uv:defs.bzl", "uv_py_workspace")
 
-uv_py_workspace(<a href="#uv_py_workspace-name">name</a>, <a href="#uv_py_workspace-members">members</a>, <a href="#uv_py_workspace-lock">lock</a>, <a href="#uv_py_workspace-wheels">wheels</a>, <a href="#uv_py_workspace-target_platforms">target_platforms</a>, <a href="#uv_py_workspace-python_requires">python_requires</a>, <a href="#uv_py_workspace-dependency_groups">dependency_groups</a>,
-                <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-env">env</a>, <a href="#uv_py_workspace-env_inherit">env_inherit</a>, <a href="#uv_py_workspace-env_providers">env_providers</a>, <a href="#uv_py_workspace-deploy_uv_python">deploy_uv_python</a>,
-                <a href="#uv_py_workspace-deploy_manylinux">deploy_manylinux</a>, <a href="#uv_py_workspace-deploy_build_deps">deploy_build_deps</a>, <a href="#uv_py_workspace-deploy_bundle_python">deploy_bundle_python</a>, <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>,
-                <a href="#uv_py_workspace-visibility">visibility</a>)
+uv_py_workspace(<a href="#uv_py_workspace-name">name</a>, <a href="#uv_py_workspace-members">members</a>, <a href="#uv_py_workspace-lock">lock</a>, <a href="#uv_py_workspace-host_python">host_python</a>, <a href="#uv_py_workspace-wheels">wheels</a>, <a href="#uv_py_workspace-target_platforms">target_platforms</a>, <a href="#uv_py_workspace-python_requires">python_requires</a>,
+                <a href="#uv_py_workspace-dependency_groups">dependency_groups</a>, <a href="#uv_py_workspace-extra_pyproject_content">extra_pyproject_content</a>, <a href="#uv_py_workspace-env">env</a>, <a href="#uv_py_workspace-env_inherit">env_inherit</a>, <a href="#uv_py_workspace-env_providers">env_providers</a>,
+                <a href="#uv_py_workspace-deploy_target_platform">deploy_target_platform</a>, <a href="#uv_py_workspace-deploy_manylinux">deploy_manylinux</a>, <a href="#uv_py_workspace-deploy_build_deps">deploy_build_deps</a>, <a href="#uv_py_workspace-deploy_bundle_python">deploy_bundle_python</a>,
+                <a href="#uv_py_workspace-target_compatible_with">target_compatible_with</a>, <a href="#uv_py_workspace-visibility">visibility</a>)
 </pre>
 
 Define and builds a uv workspace from uv_py_package targets.
@@ -401,6 +402,7 @@ uv_py_workspace(
     name = "my_workspace",
     members = ["//pkg_a", "//pkg_b"],
     lock = "uv.lock",
+    host_python = "cpython-3.12",
 )
 ```
 
@@ -413,15 +415,16 @@ uv_py_workspace(
 | <a id="uv_py_workspace-name"></a>name |  target name.   |  none |
 | <a id="uv_py_workspace-members"></a>members |  uv_py_package targets (workspace members).   |  none |
 | <a id="uv_py_workspace-lock"></a>lock |  the uv.lock file.   |  none |
+| <a id="uv_py_workspace-host_python"></a>host_python |  uv python key for the **host** interpreter that runs ``uv lock`` / ``uv sync`` / ``uv build`` (e.g. ``"cpython-3.12"`` or ``"cpython-3.12.5"``). Anything ``uv python list`` resolves is accepted. The interpreter is fetched via ``uv python install`` at action time and reused across actions via the uv cache.   |  none |
 | <a id="uv_py_workspace-wheels"></a>wheels |  uv_py_import_wheel targets whose .whl files are registered as ``[tool.uv.sources]`` path entries in the generated pyproject.toml.   |  `[]` |
 | <a id="uv_py_workspace-target_platforms"></a>target_platforms |  dict of platform label to PEP 508 marker string. When provided, each wheel is built under every listed platform via a split transition. Keys are platform labels (e.g. ``":linux_x86_64"``), values are marker expressions (e.g. ``"platform_machine == 'x86_64'"``).   |  `{}` |
-| <a id="uv_py_workspace-python_requires"></a>python_requires |  Python version constraint.   |  `">=3.11"` |
+| <a id="uv_py_workspace-python_requires"></a>python_requires |  optional Python version constraint written to ``project.requires-python`` in the generated workspace pyproject.toml. Leave empty to omit the field. uv lock will then use the ``host_python`` interpreter (and member pyprojects' ``requires-python``) for resolution scope. Set explicitly (e.g. ``">=3.10"``) when you need a specific range.   |  `""` |
 | <a id="uv_py_workspace-dependency_groups"></a>dependency_groups |  dict of group name to dep list (e.g. ``{"test": ["pytest>=8.0"]}``).   |  `{}` |
 | <a id="uv_py_workspace-extra_pyproject_content"></a>extra_pyproject_content |  additional TOML content appended verbatim to the generated pyproject.toml.   |  `""` |
 | <a id="uv_py_workspace-env"></a>env |  dict of environment variable name to value, forwarded to ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).   |  `{}` |
 | <a id="uv_py_workspace-env_inherit"></a>env_inherit |  if True, inherit the host shell environment when running ``uv sync``. Prefer ``env_providers`` for reproducible builds.   |  `False` |
 | <a id="uv_py_workspace-env_providers"></a>env_providers |  list of targets providing ``UvBuildEnvInfo``. If the ``env`` attr sets the same variable, it takes precedence.   |  `[]` |
-| <a id="uv_py_workspace-deploy_uv_python"></a>deploy_uv_python |  uv python install key for the ``.deploy`` target (e.g. ``"cpython-3.12"`` for host-native, or a full cross-compile key like ``"cpython-3.12-linux-aarch64-gnu"`` / ``"cpython-3.12-macos-aarch64-none"``). Accepts anything ``uv python list`` resolves; typically a ``select()`` over target platforms. Cross-compile is detected automatically by comparing the resolved entry's ``(os, arch)`` to the host's.   |  `""` |
+| <a id="uv_py_workspace-deploy_target_platform"></a>deploy_target_platform |  cross-compile platform suffix for the ``.deploy`` target (e.g. ``"linux-aarch64-gnu"`` / ``"macos-aarch64-none"``). The target uv python key is constructed with ``host_python`` as ``{host_python.impl}-{host_python.version}-{deploy_target_platform}``. Typically a ``select()`` over target platforms. Leave empty (default) for non-cross-compile deploy where the bundled Python matches the host.   |  `""` |
 | <a id="uv_py_workspace-deploy_manylinux"></a>deploy_manylinux |  optional manylinux baseline override for Linux+gnu cross-compile (e.g. ``"manylinux_2_28"``). The default value is ``manylinux2014`` (glibc 2.17). Ignored for musl and other OS.   |  `""` |
 | <a id="uv_py_workspace-deploy_build_deps"></a>deploy_build_deps |  Python packages to pre-install as host-platform build tools (e.g. ``["setuptools", "wheel", "uv-build>=0.7"]``).   |  `[]` |
 | <a id="uv_py_workspace-deploy_bundle_python"></a>deploy_bundle_python |  if ``True`` (default), bundle a standalone Python interpreter. If ``False``, the deploy artifact doesn't bundle interpreter, and put a ``bin/python3`` shim instead that searches ``python3.X``/``python3`` over ``PATH``.   |  `True` |
