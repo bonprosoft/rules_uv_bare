@@ -13,8 +13,8 @@ def _uv_py_venv_impl(ctx):
 
     rlocation_path = rlocation_key(workspace_file.short_path, ctx.workspace_name)
 
-    if ctx.attr.deploy:
-        # Deploy mode: workspace_file is the venv directory artifact.
+    if ctx.attr.bundle:
+        # Bundle mode: workspace_file is the venv directory artifact.
         venv_bin_expr = '"$(rlocation "{}")/bin"'.format(rlocation_path)
     else:
         # Dev mode: workspace_file is a marker file whose first line is the
@@ -45,7 +45,7 @@ def _uv_py_venv_impl(ctx):
 _COMMON_ATTRS = {
     "workspace": attr.label(mandatory = True),
     "cmd": attr.string_list(mandatory = True),
-    "deploy": attr.bool(default = False, doc = "Use deployed venv instead of dev venv."),
+    "bundle": attr.bool(default = False, doc = "Use the bundled venv instead of the dev venv."),
     "data": attr.label_list(default = [], allow_files = True),
     "_script_template": attr.label(
         default = Label("@rules_uv_bare//uv/private:venv_entrypoint.sh.tpl"),
@@ -71,7 +71,7 @@ _uv_py_entrypoint_test = rule(
 def uv_py_entrypoint(name, workspace, cmd, **kwargs):
     """Runs a command in the workspace venv.
 
-    Also creates a ``<name>.deploy`` sub-target that uses the relocatable self-contained env.
+    Also creates a ``<name>.bundle`` sub-target that uses the relocatable self-contained env.
 
     ``cmd`` is embedded in the built binary, so both ``bazel run``
     and direct invocation (``./bazel-bin/<name>``) work.
@@ -79,7 +79,7 @@ def uv_py_entrypoint(name, workspace, cmd, **kwargs):
     ``rlocation`` bash function is supported in ``cmd`` to reference data files.
 
     ```bzl
-    # Creates :run (dev) and :run.deploy (self-contained, deploy)
+    # Creates :run (dev) and :run.bundle (self-contained, bundle)
     uv_py_entrypoint(
         name = "run",
         workspace = ":ws",
@@ -96,9 +96,9 @@ def uv_py_entrypoint(name, workspace, cmd, **kwargs):
         **kwargs: additional arguments forwarded to the underlying rule.
     """
     _uv_py_entrypoint_rule(name = name, workspace = workspace, cmd = cmd, **kwargs)
-    deploy_kwargs = dict(kwargs)
-    deploy_kwargs["tags"] = ["manual"] + deploy_kwargs.get("tags", [])
-    _uv_py_entrypoint_rule(name = name + ".deploy", workspace = workspace + ".deploy", cmd = cmd, deploy = True, **deploy_kwargs)
+    bundle_kwargs = dict(kwargs)
+    bundle_kwargs["tags"] = ["manual"] + bundle_kwargs.get("tags", [])
+    _uv_py_entrypoint_rule(name = name + ".bundle", workspace = workspace + ".bundle", cmd = cmd, bundle = True, **bundle_kwargs)
 
 def uv_py_test(name, workspace, cmd, **kwargs):
     """Runs a command in the workspace venv as a test.

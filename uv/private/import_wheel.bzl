@@ -4,7 +4,7 @@ load("//uv/private:providers.bzl", "UvPyWheelInfo")
 
 def _uv_py_import_wheel_impl(ctx):
     whl = ctx.file.src
-    pkg_name = ctx.attr.python_package_name
+    pkg_name = ctx.attr.dist_name
     if not pkg_name:
         # Infer from wheel filename: {name}-{ver}(-...)*.whl
         basename = whl.basename
@@ -15,9 +15,9 @@ def _uv_py_import_wheel_impl(ctx):
 
     return [
         UvPyWheelInfo(
-            label_name = str(ctx.label),
+            label = str(ctx.label),
             wheel = whl,
-            python_package_name = pkg_name,
+            dist_name = pkg_name,
             frozen = ctx.attr.frozen,
         ),
         DefaultInfo(files = depset([whl])),
@@ -45,16 +45,17 @@ uv_py_import_wheel(
             mandatory = True,
             doc = "The .whl file to import.",
         ),
-        "python_package_name": attr.string(
+        "dist_name": attr.string(
             default = "",
-            doc = "Python package name override. " +
+            doc = "Python distribution name override (i.e. ``[project].name``). " +
                   "Inferred from the wheel filename if not set. " +
                   "Underscores are normalized to hyphens.",
         ),
         "frozen": attr.bool(
             default = True,
-            doc = "If False, the wheel hash is recomputed every build. " +
-                  "Use when the wheel is built by Bazel and changes frequently.",
+            doc = "If True (default), trust the wheel's hash in uv.lock. " +
+                  "Set False for wheels that Bazel rebuilds (whose contents change " +
+                  "between builds); the hash is then re-resolved into uv.lock.",
         ),
     },
 )

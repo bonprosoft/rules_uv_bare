@@ -50,11 +50,11 @@ cargo_uv_env(
 
 uv_py_workspace(
     name = "ws",
-    dependency_groups = {"test": ["pytest>=8.0"]},
-    env_providers = [
+    build_env_deps = [
         ":cc_env",
         ":cargo_env",
     ],
+    dependency_groups = {"test": ["pytest>=8.0"]},
     # Force build msgpack and pydantic-core from source for demonstration.
     extra_pyproject_content = """
 tool.uv.no-binary-package = ["msgpack", "pydantic-core"]

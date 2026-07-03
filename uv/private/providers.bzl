@@ -3,8 +3,8 @@
 UvPyPackageInfo = provider(
     "Package info",
     fields = {
-        "label_name": "Bazel label",
-        "python_package_name": "Python package name",
+        "label": "Stringified Bazel label",
+        "dist_name": "Python distribution name (PyPI/dist name)",
         "pyproject": "The pyproject.toml File",
         "srcs": "Depset of source files",
         "data": "Depset of data files",
@@ -16,10 +16,10 @@ UvPyPackageInfo = provider(
 UvPyWheelInfo = provider(
     "Wheel info",
     fields = {
-        "label_name": "Bazel label",
+        "label": "Stringified Bazel label",
         "wheel": ".whl File",
-        "python_package_name": "Python package name",
-        "frozen": "If false, the hash is recomputed at build time",
+        "dist_name": "Python distribution name (PyPI/dist name)",
+        "frozen": "If False, the wheel hash is re-resolved into uv.lock each build",
     },
 )
 
@@ -36,7 +36,7 @@ UvPyManifestInfo = provider(
     fields = {
         "manifest_file": "JSON file for manifest",
         "lock_file": "uv.lock File",
-        "wheel_files": "List of wheel File objects",
+        "wheel_inputs": "List of wheel File objects",
         "pyproject_inputs": "List of pyproject.toml File objects",
         "src_files": "Depset of source files",
         "data_files": "Depset of data files",

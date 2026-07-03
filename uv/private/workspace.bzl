@@ -5,15 +5,20 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//uv/private:providers.bzl", "UvBuildEnvInfo", "UvPyManifestInfo", "UvPyPackageInfo", "UvPyWheelInfo")
 load("//uv/private:uv_env.bzl", "with_uv_env_defaults")
 
+# Split-transition branch key used when no platform_markers are set.
+_IDENTITY_KEY = "_current"
+
+# This transition exists ONLY to build each explicitly-listed wheel once per
+# entry in `platform_markers` (a label -> PEP 508 marker dict), so a single lock
+# file can carry platform-specific wheels. With no platform_markers it is an
+# identity no-op.
 def _uv_multi_platform_transition_impl(settings, attr):
-    # Use split-transition to iterate over possible platforms.
-    target_platforms = attr.target_platforms
-    if not target_platforms:
-        # Identity: preserve current config
-        return {"_current": {"//command_line_option:platforms": settings["//command_line_option:platforms"]}}
+    platform_markers = attr.platform_markers
+    if not platform_markers:
+        return {_IDENTITY_KEY: {"//command_line_option:platforms": settings["//command_line_option:platforms"]}}
     return {
         marker: {"//command_line_option:platforms": [str(platform_label)]}
-        for platform_label, marker in target_platforms.items()
+        for platform_label, marker in platform_markers.items()
     }
 
 _uv_multi_platform_transition = transition(
@@ -22,148 +27,116 @@ _uv_multi_platform_transition = transition(
     outputs = ["//command_line_option:platforms"],
 )
 
-def _collect_members_and_wheels(members_attr, split_wheels_attr, has_target_platforms):
-    seen_package_names = {}  # python_package_name -> label
-    seen_labels = {}  # label_name -> True
+def _fail_conflict(dist_name, existing, label):
+    fail("dist_name '%s' is claimed by both '%s' and '%s'" % (dist_name, existing, label))
 
+def _warn_conflict(dist_name, existing, label):
+    # buildifier: disable=print
+    print("WARNING: dist_name '%s' is already claimed by '%s': transitive target '%s' is ignored" % (
+        dist_name,
+        existing,
+        label,
+    ))
+
+def _claim(dist_name, label, seen_names, seen_labels, on_conflict):
+    # Register (dist_name, label).
+    # Returns True if newly claimed.
+    # Returns False if the label was already seen.
+    # If dist_name conflicts with a different label, calls on_conflict (fail or warn) and returns False.
+    if label in seen_labels:
+        return False
+    seen_labels[label] = True
+    if dist_name in seen_names:
+        on_conflict(dist_name, seen_names[dist_name], label)
+        return False
+    seen_names[dist_name] = label
+    return True
+
+def _collect_members_and_wheels(members_attr, split_wheels_attr, has_platform_markers):
+    seen_names = {}  # dist_name -> label
+    seen_labels = {}  # label -> True
     members = []
     wheels = []  # list of structs with variants
-    wheel_files = []
+    wheel_inputs = []
 
-    # Identify direct member labels
-    direct_member_labels = {}
-    for m in members_attr:
-        direct_member_labels[m[UvPyPackageInfo].label_name] = True
-
-    # direct member members
+    # Direct members. Conflicts are fatal.
+    direct_member_labels = {m[UvPyPackageInfo].label: True for m in members_attr}
     for m in members_attr:
         for pkg in m[UvPyPackageInfo].transitive_packages:
-            if pkg.label_name not in direct_member_labels:
-                continue
-            if pkg.label_name in seen_labels:
-                continue
-            seen_labels[pkg.label_name] = True
-            if pkg.python_package_name in seen_package_names:
-                fail("python_package_name '%s' is claimed by both '%s' and '%s'" % (
-                    pkg.python_package_name,
-                    seen_package_names[pkg.python_package_name],
-                    pkg.label_name,
-                ))
-            else:
-                seen_package_names[pkg.python_package_name] = pkg.label_name
-            members.append(pkg)
-
-    # explicit wheels
-    # Build a dict: python_package_name -> {label_name, frozen, variants: [{wheel, marker}, ...]}
-    explicit_wheel_data = {}  # python_package_name -> struct-like dict
-    for config_key, wheel_targets in split_wheels_attr.items():
-        marker = "" if config_key == "_current" else config_key
-        for w in wheel_targets:
-            whl = w[UvPyWheelInfo]
-            if whl.python_package_name not in explicit_wheel_data:
-                explicit_wheel_data[whl.python_package_name] = {
-                    "label_name": whl.label_name,
-                    "python_package_name": whl.python_package_name,
-                    "frozen": whl.frozen,
-                    "variants": [],
-                }
-            explicit_wheel_data[whl.python_package_name]["variants"].append(
-                struct(wheel = whl.wheel, marker = marker),
-            )
-
-    for _, data in explicit_wheel_data.items():
-        if data["label_name"] in seen_labels:
-            continue
-        seen_labels[data["label_name"]] = True
-
-        if data["python_package_name"] in seen_package_names:
-            fail("python_package_name '%s' is claimed by both '%s' and '%s'" % (
-                data["python_package_name"],
-                seen_package_names[data["python_package_name"]],
-                data["label_name"],
-            ))
-        seen_package_names[data["python_package_name"]] = data["label_name"]
-
-        variant_structs = data["variants"]
-        wheels.append(struct(
-            label_name = data["label_name"],
-            python_package_name = data["python_package_name"],
-            frozen = data["frozen"],
-            variants = variant_structs,
-        ))
-        for v in variant_structs:
-            wheel_files.append(v.wheel)
-
-    # transitive members + wheels
-    for member in members_attr:
-        for pkg in member[UvPyPackageInfo].transitive_packages:
-            if pkg.label_name in seen_labels:
-                continue
-            seen_labels[pkg.label_name] = True
-            if pkg.python_package_name in seen_package_names:
-                # buildifier: disable=print
-                print("WARNING: python_package_name '%s' is already claimed by '%s': transitive target '%s' is ignored" % (
-                    pkg.python_package_name,
-                    seen_package_names[pkg.python_package_name],
-                    pkg.label_name,
-                ))
-            else:
-                seen_package_names[pkg.python_package_name] = pkg.label_name
+            if pkg.label in direct_member_labels and _claim(pkg.dist_name, pkg.label, seen_names, seen_labels, _fail_conflict):
                 members.append(pkg)
 
-        for whl in member[UvPyPackageInfo].transitive_wheels:
-            if whl.label_name in seen_labels:
-                continue
-            seen_labels[whl.label_name] = True
-            if whl.python_package_name in seen_package_names:
-                # buildifier: disable=print
-                print("WARNING: python_package_name '%s' is already claimed by '%s': transitive target '%s' is ignored" % (
-                    whl.python_package_name,
-                    seen_package_names[whl.python_package_name],
-                    whl.label_name,
-                ))
-            else:
-                # Validate: when target_platforms is set, platform-specific transitive wheels
-                # must be listed explicitly in 'wheels' to get the split transition.
-                if has_target_platforms and not whl.wheel.basename.endswith("-none-any.whl"):
-                    fail(
-                        ("Cross-platform wheel '%s' (from wheel_deps of '%s') has a platform-specific " +
-                         "filename but is not listed in 'wheels' of uv_py_workspace. When using " +
-                         "target_platforms, platform-specific wheels must be listed explicitly in " +
-                         "'wheels' so they can be built for all target platforms.") % (
-                            whl.python_package_name,
-                            member.label,
-                        ),
-                    )
-                seen_package_names[whl.python_package_name] = whl.label_name
+    # Explicitly-listed wheels (may carry per-platform variants). Conflicts fatal.
+    explicit_wheel_data = {}  # dist_name -> {label, frozen, variants}
+    for config_key, wheel_targets in split_wheels_attr.items():
+        marker = "" if config_key == _IDENTITY_KEY else config_key
+        for w in wheel_targets:
+            whl = w[UvPyWheelInfo]
+            data = explicit_wheel_data.setdefault(whl.dist_name, {
+                "label": whl.label,
+                "dist_name": whl.dist_name,
+                "frozen": whl.frozen,
+                "variants": [],
+            })
+            data["variants"].append(struct(wheel = whl.wheel, marker = marker))
+    for data in explicit_wheel_data.values():
+        if _claim(data["dist_name"], data["label"], seen_names, seen_labels, _fail_conflict):
+            wheels.append(struct(
+                label = data["label"],
+                dist_name = data["dist_name"],
+                frozen = data["frozen"],
+                variants = data["variants"],
+            ))
+            wheel_inputs.extend([v.wheel for v in data["variants"]])
 
-                # Wrap transitive wheels in variants format with empty marker
+    # Transitive members + wheels (conflicts warn and skip).
+    for member in members_attr:
+        for pkg in member[UvPyPackageInfo].transitive_packages:
+            if _claim(pkg.dist_name, pkg.label, seen_names, seen_labels, _warn_conflict):
+                members.append(pkg)
+        for whl in member[UvPyPackageInfo].transitive_wheels:
+            if whl.label in seen_labels:
+                continue
+
+            # A platform-specific transitive wheel can't get the split transition,
+            # so require it to be listed explicitly in 'wheels' under platform_markers.
+            if has_platform_markers and not whl.wheel.basename.endswith("-none-any.whl") and whl.dist_name not in seen_names:
+                fail(
+                    ("Cross-platform wheel '%s' (from wheel_deps of '%s') has a platform-specific " +
+                     "filename but is not listed in 'wheels' of uv_py_workspace. When using " +
+                     "platform_markers, platform-specific wheels must be listed explicitly in " +
+                     "'wheels' so they can be built for all target platforms.") % (
+                        whl.dist_name,
+                        member.label,
+                    ),
+                )
+            if _claim(whl.dist_name, whl.label, seen_names, seen_labels, _warn_conflict):
                 wheels.append(struct(
-                    label_name = whl.label_name,
-                    python_package_name = whl.python_package_name,
+                    label = whl.label,
+                    dist_name = whl.dist_name,
                     frozen = whl.frozen,
                     variants = [struct(wheel = whl.wheel, marker = "")],
                 ))
-                wheel_files.append(whl.wheel)
+                wheel_inputs.append(whl.wheel)
 
-    return members, wheels, wheel_files
+    return members, wheels, wheel_inputs
 
 def _uv_py_manifest_impl(ctx):
-    packages, wheels, wheel_files = _collect_members_and_wheels(
+    packages, wheels, wheel_inputs = _collect_members_and_wheels(
         ctx.attr.members,
         ctx.split_attr.wheels,
-        bool(ctx.attr.target_platforms),
+        bool(ctx.attr.platform_markers),
     )
 
     manifest_content = {
-        "ws_name": ctx.attr.ws_name,
+        "project_name": ctx.attr.project_name,
         "host_python": ctx.attr.host_python,
-        "python_requires": ctx.attr.python_requires,
+        "requires_python": ctx.attr.requires_python,
         "lock_path": ctx.file.lock.path,
         "lock_short_path": ctx.file.lock.short_path,
         "packages": [
             {
-                "name": p.python_package_name,
+                "name": p.dist_name,
                 "pyproject_path": p.pyproject.path,
                 "pyproject_short_path": p.pyproject.short_path,
             }
@@ -171,7 +144,7 @@ def _uv_py_manifest_impl(ctx):
         ],
         "wheels": [
             {
-                "name": w.python_package_name,
+                "name": w.dist_name,
                 "frozen": w.frozen,
                 "variants": [
                     {"path": v.wheel.path, "short_path": v.wheel.short_path, "marker": v.marker}
@@ -182,7 +155,7 @@ def _uv_py_manifest_impl(ctx):
         ],
         "dependency_groups": ctx.attr.dependency_groups,
         "extra_pyproject_content": ctx.attr.extra_pyproject_content,
-        "environments": sorted(ctx.attr.target_platforms.values()) if ctx.attr.target_platforms else [],
+        "environments": sorted(ctx.attr.platform_markers.values()) if ctx.attr.platform_markers else [],
     }
 
     manifest_file = ctx.actions.declare_file(ctx.attr.name + ".json")
@@ -193,7 +166,7 @@ def _uv_py_manifest_impl(ctx):
         UvPyManifestInfo(
             manifest_file = manifest_file,
             lock_file = ctx.file.lock,
-            wheel_files = wheel_files,
+            wheel_inputs = wheel_inputs,
             pyproject_inputs = [pkg.pyproject for pkg in packages],
             src_files = depset(transitive = [pkg.srcs for pkg in packages]),
             data_files = depset(transitive = [pkg.data for pkg in packages]),
@@ -208,13 +181,13 @@ def _uv_py_manifest_impl(ctx):
 _uv_py_manifest_rule = rule(
     implementation = _uv_py_manifest_impl,
     attrs = {
-        "ws_name": attr.string(mandatory = True),
+        "project_name": attr.string(mandatory = True),
         "members": attr.label_list(providers = [UvPyPackageInfo]),
         "wheels": attr.label_list(providers = [UvPyWheelInfo], cfg = _uv_multi_platform_transition),
-        "target_platforms": attr.label_keyed_string_dict(default = {}),
+        "platform_markers": attr.label_keyed_string_dict(default = {}),
         "lock": attr.label(allow_single_file = True),
         "host_python": attr.string(mandatory = True),
-        "python_requires": attr.string(default = ""),
+        "requires_python": attr.string(default = ""),
         "dependency_groups": attr.string_list_dict(),
         "extra_pyproject_content": attr.string(default = ""),
         # See https://bazel.build/versions/7.4.0/extending/config#user-defined-transitions
@@ -226,7 +199,7 @@ _uv_py_manifest_rule = rule(
 
 def _build_env(ctx):
     env = {}
-    for provider_target in ctx.attr.env_providers:
+    for provider_target in ctx.attr.build_env_deps:
         env.update(provider_target[UvBuildEnvInfo].env)
     env.update(ctx.attr.env)
 
@@ -234,21 +207,21 @@ def _build_env(ctx):
     # user-set UV_CACHE_DIR.
     env = with_uv_env_defaults(env)
 
-    files = [provider_target[UvBuildEnvInfo].files for provider_target in ctx.attr.env_providers]
+    files = [provider_target[UvBuildEnvInfo].files for provider_target in ctx.attr.build_env_deps]
     return env, files
 
-# Shared attrs for the dev-build and deploy workspace rules.
+# Shared attrs for the dev-build and bundle workspace rules.
 _ENV_ATTRS = {
     "env": attr.string_dict(
         doc = "Environment variables to set when running uv sync.",
         default = {},
     ),
-    "env_inherit": attr.bool(
+    "inherit_host_env": attr.bool(
         doc = "If True, inherit the host shell environment when running uv sync. " +
-              "Prefer env_providers for reproducible builds.",
+              "Prefer build_env_deps for reproducible builds.",
         default = False,
     ),
-    "env_providers": attr.label_list(
+    "build_env_deps": attr.label_list(
         doc = "Targets providing UvBuildEnvInfo with additional environment variables.",
         providers = [UvBuildEnvInfo],
         default = [],
@@ -269,7 +242,7 @@ _TOOL_ATTRS = {
 
 def _run_workspace_tool(ctx, info, config_file, verb, outputs, env, env_provider_files):
     all_inputs = depset(
-        direct = info.pyproject_inputs + [info.lock_file, info.manifest_file, config_file, ctx.file._workspace_tool_py] + info.wheel_files,
+        direct = info.pyproject_inputs + [info.lock_file, info.manifest_file, config_file, ctx.file._workspace_tool_py] + info.wheel_inputs,
         transitive = [info.src_files, info.data_files] + env_provider_files,
     )
     ctx.actions.run(
@@ -290,14 +263,14 @@ def _run_workspace_tool(ctx, info, config_file, verb, outputs, env, env_provider
         tools = [ctx.executable._uv],
         env = env,
         execution_requirements = {"local": "1"},
-        use_default_shell_env = ctx.attr.env_inherit,
+        use_default_shell_env = ctx.attr.inherit_host_env,
     )
 
 def _uv_py_workspace_rule_impl(ctx):
     for c in ctx.attr._host_constraints:
         if not ctx.target_platform_has_constraint(c[platform_common.ConstraintValueInfo]):
             fail("Workspace cannot be built if the target platform doesn't match the host since it runs `uv sync` locally and produces host-platform artifacts. " +
-                 "Use `.deploy` target, uv_py_lock or uv_py_export instead.")
+                 "Use `.bundle` target, uv_py_lock or uv_py_export instead.")
 
     info = ctx.attr.manifest[UvPyManifestInfo]
 
@@ -318,7 +291,7 @@ def _uv_py_workspace_rule_impl(ctx):
     _run_workspace_tool(ctx, info, config_file, "build", [venv_marker, venv_dir], env, env_provider_files)
 
     runfiles = ctx.runfiles(
-        files = [venv_marker, venv_dir] + info.wheel_files,
+        files = [venv_marker, venv_dir] + info.wheel_inputs,
         transitive_files = info.member_files,
     )
     return [DefaultInfo(files = depset([venv_marker]), runfiles = runfiles)]
@@ -334,37 +307,37 @@ _uv_py_workspace_rule = rule(
     } | _ENV_ATTRS | _TOOL_ATTRS,
 )
 
-def _uv_py_workspace_deploy_rule_impl(ctx):
+def _uv_py_workspace_bundle_rule_impl(ctx):
     # Unlike the dev workspace rule, this does NOT check host constraints since it doesn't require running a target-platform binary on the host.
     info = ctx.attr.manifest[UvPyManifestInfo]
-    deploy_dir = ctx.actions.declare_directory(ctx.attr.name + "_dir")
+    bundle_dir = ctx.actions.declare_directory(ctx.attr.name + "_dir")
 
     env, env_provider_files = _build_env(ctx)
 
-    deploy_config = {
-        "deploy_dir_path": deploy_dir.path,
+    bundle_config = {
+        "bundle_dir_path": bundle_dir.path,
         "uv_path": ctx.executable._uv.path,
-        "deploy_target_platform": ctx.attr.deploy_target_platform,
-        "manylinux": ctx.attr.manylinux,
-        "build_deps": ctx.attr.build_deps,
-        "bundle_python": ctx.attr.bundle_python,
+        "bundle_target_platform": ctx.attr.bundle_target_platform,
+        "manylinux": ctx.attr.bundle_manylinux,
+        "build_deps": ctx.attr.bundle_build_deps,
+        "bundle_interpreter": ctx.attr.bundle_interpreter,
     }
-    config_file = ctx.actions.declare_file(ctx.attr.name + ".deploy.config.json")
-    ctx.actions.write(output = config_file, content = json.encode(deploy_config))
+    config_file = ctx.actions.declare_file(ctx.attr.name + ".bundle.config.json")
+    ctx.actions.write(output = config_file, content = json.encode(bundle_config))
 
-    _run_workspace_tool(ctx, info, config_file, "deploy", [deploy_dir], env, env_provider_files)
+    _run_workspace_tool(ctx, info, config_file, "bundle", [bundle_dir], env, env_provider_files)
 
-    runfiles = ctx.runfiles(files = [deploy_dir])
-    return [DefaultInfo(files = depset([deploy_dir]), runfiles = runfiles)]
+    runfiles = ctx.runfiles(files = [bundle_dir])
+    return [DefaultInfo(files = depset([bundle_dir]), runfiles = runfiles)]
 
-_uv_py_workspace_deploy_rule = rule(
-    implementation = _uv_py_workspace_deploy_rule_impl,
+_uv_py_workspace_bundle_rule = rule(
+    implementation = _uv_py_workspace_bundle_rule_impl,
     attrs = {
         "manifest": attr.label(mandatory = True, providers = [UvPyManifestInfo]),
-        "deploy_target_platform": attr.string(default = ""),
-        "manylinux": attr.string(default = ""),
-        "build_deps": attr.string_list(default = []),
-        "bundle_python": attr.bool(default = True),
+        "bundle_target_platform": attr.string(default = ""),
+        "bundle_manylinux": attr.string(default = ""),
+        "bundle_build_deps": attr.string_list(default = []),
+        "bundle_interpreter": attr.bool(default = True),
     } | _ENV_ATTRS | _TOOL_ATTRS,
 )
 
@@ -374,17 +347,17 @@ def uv_py_workspace(
         lock,
         host_python,
         wheels = [],
-        target_platforms = {},
-        python_requires = "",
+        platform_markers = {},
+        requires_python = "",
         dependency_groups = {},
         extra_pyproject_content = "",
         env = {},
-        env_inherit = False,
-        env_providers = [],
-        deploy_target_platform = "",
-        deploy_manylinux = "",
-        deploy_build_deps = [],
-        deploy_bundle_python = True,
+        inherit_host_env = False,
+        build_env_deps = [],
+        bundle_target_platform = "",
+        bundle_manylinux = "",
+        bundle_build_deps = [],
+        bundle_interpreter = True,
         target_compatible_with = [],
         visibility = ["//visibility:public"]):
     """Define and builds a uv workspace from uv_py_package targets.
@@ -393,7 +366,7 @@ def uv_py_workspace(
 
     - ``<name>.run``: runs commands in the workspace venv
     - ``<name>.activate``: prints the path to the venv activate script for shell sourcing
-    - ``<name>.deploy``: builds a self-contained env with a bundled Python interpreter
+    - ``<name>.bundle``: builds a self-contained env with a bundled Python interpreter
 
     Use ``uv_py_lock`` and ``uv_py_export`` for lock-file management and workspace export.
 
@@ -419,11 +392,11 @@ def uv_py_workspace(
             action time and reused across actions via the uv cache.
         wheels: uv_py_import_wheel targets whose .whl files are registered
             as ``[tool.uv.sources]`` path entries in the generated pyproject.toml.
-        target_platforms: dict of platform label to PEP 508 marker string.
+        platform_markers: dict of platform label to PEP 508 marker string.
             When provided, each wheel is built under every listed platform via
             a split transition. Keys are platform labels (e.g. ``":linux_x86_64"``), values
             are marker expressions (e.g. ``"platform_machine == 'x86_64'"``).
-        python_requires: optional Python version constraint written to
+        requires_python: optional Python version constraint written to
             ``project.requires-python`` in the generated workspace pyproject.toml.
             Leave empty to omit the field. uv lock will then use the
             ``host_python`` interpreter (and member pyprojects'
@@ -434,25 +407,25 @@ def uv_py_workspace(
             the generated pyproject.toml.
         env: dict of environment variable name to value, forwarded to
             ``uv sync`` (e.g. ``{"CC": "/usr/bin/gcc"}``).
-        env_inherit: if True, inherit the host shell environment when
-            running ``uv sync``. Prefer ``env_providers`` for reproducible builds.
-        env_providers: list of targets providing ``UvBuildEnvInfo``.
+        inherit_host_env: if True, inherit the host shell environment when
+            running ``uv sync``. Prefer ``build_env_deps`` for reproducible builds.
+        build_env_deps: list of targets providing ``UvBuildEnvInfo``.
             If the ``env`` attr sets the same variable, it takes precedence.
-        deploy_target_platform: cross-compile platform suffix for the ``.deploy``
+        bundle_target_platform: cross-compile platform suffix for the ``.bundle``
             target (e.g. ``"linux-aarch64-gnu"`` / ``"macos-aarch64-none"``).
             The target uv python key is constructed with ``host_python`` as
-            ``{host_python.impl}-{host_python.version}-{deploy_target_platform}``.
+            ``{host_python.impl}-{host_python.version}-{bundle_target_platform}``.
             Typically a ``select()`` over target platforms.
-            Leave empty (default) for non-cross-compile deploy where the
+            Leave empty (default) for a non-cross-compile bundle where the
             bundled Python matches the host.
-        deploy_manylinux: optional manylinux baseline override for Linux+gnu
+        bundle_manylinux: optional manylinux baseline override for Linux+gnu
             cross-compile (e.g. ``"manylinux_2_28"``). The default value is
             ``manylinux2014`` (glibc 2.17). Ignored for musl and other OS.
-        deploy_build_deps: Python packages to pre-install as host-platform
+        bundle_build_deps: Python packages to pre-install as host-platform
             build tools (e.g. ``["setuptools", "wheel", "uv-build>=0.7"]``).
-        deploy_bundle_python: if ``True`` (default), bundle a standalone Python
-            interpreter. If ``False``, the deploy artifact doesn't bundle
-            interpreter, and put a ``bin/python3`` shim instead that searches
+        bundle_interpreter: if ``True`` (default), bundle a standalone Python
+            interpreter. If ``False``, the bundle doesn't include an
+            interpreter, and puts a ``bin/python3`` shim instead that searches
             ``python3.X``/``python3`` over ``PATH``.
         target_compatible_with: standard Bazel ``target_compatible_with``
             constraint list. Targets whose platform doesn't satisfy these
@@ -461,13 +434,13 @@ def uv_py_workspace(
     """
     _uv_py_manifest_rule(
         name = name + ".manifest",
-        ws_name = name,
+        project_name = name,
         members = members,
         wheels = wheels,
-        target_platforms = target_platforms,
+        platform_markers = platform_markers,
         lock = lock,
         host_python = host_python,
-        python_requires = python_requires,
+        requires_python = requires_python,
         dependency_groups = dependency_groups,
         extra_pyproject_content = extra_pyproject_content,
     )
@@ -476,8 +449,8 @@ def uv_py_workspace(
         name = name,
         manifest = ":" + name + ".manifest",
         env = env,
-        env_inherit = env_inherit,
-        env_providers = env_providers,
+        inherit_host_env = inherit_host_env,
+        build_env_deps = build_env_deps,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
     )
@@ -497,16 +470,16 @@ def uv_py_workspace(
         target_compatible_with = target_compatible_with,
         visibility = visibility,
     )
-    _uv_py_workspace_deploy_rule(
-        name = name + ".deploy",
+    _uv_py_workspace_bundle_rule(
+        name = name + ".bundle",
         manifest = ":" + name + ".manifest",
-        deploy_target_platform = deploy_target_platform,
-        manylinux = deploy_manylinux,
-        build_deps = deploy_build_deps,
-        bundle_python = deploy_bundle_python,
+        bundle_target_platform = bundle_target_platform,
+        bundle_manylinux = bundle_manylinux,
+        bundle_build_deps = bundle_build_deps,
+        bundle_interpreter = bundle_interpreter,
         env = env,
-        env_inherit = env_inherit,
-        env_providers = env_providers,
+        inherit_host_env = inherit_host_env,
+        build_env_deps = build_env_deps,
         target_compatible_with = target_compatible_with,
         tags = ["manual"],
         visibility = visibility,

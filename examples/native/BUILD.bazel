@@ -5,8 +5,8 @@ uv_cc_env(name = "cc_env")
 
 uv_py_workspace(
     name = "ws",
+    build_env_deps = [":cc_env"],
     dependency_groups = {"test": ["pytest>=8.0"]},
-    env_providers = [":cc_env"],
     # Force msgpack to build from source for demonstration.
     extra_pyproject_content = """
 tool.uv.no-binary-package = ["msgpack"]

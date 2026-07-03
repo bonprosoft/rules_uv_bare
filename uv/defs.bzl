@@ -5,15 +5,18 @@ Provides:
   - uv_py_workspace: defines and creates a uv workspace from packages
       - .run: runs commands in the workspace venv
       - .activate: prints path to venv activate script for shell sourcing
+      - .bundle: builds a self-contained directory with a bundled Python interpreter
   - uv_py_lock: updates uv.lock in-place
   - uv_py_export: exports a portable workspace directory
   - uv_py_entrypoint: runs commands in the workspace venv
   - uv_py_test: runs tests in the workspace venv
   - uv_py_wheel: builds a .whl from a uv_py_package target
   - uv_py_import_wheel: imports a wheel file for use with uv_py_package or uv_py_workspace
-  - uv_py_deploy: deploys workspace into a standalone directory
+  - uv_py_deploy: copies the built .bundle into a standalone directory
 
-Helpers for custom UvBuildEnvInfo providers:
+For writing custom rules:
+  - UvPyPackageInfo / UvPyWheelInfo / UvBuildEnvInfo: providers emitted/consumed by these rules
+  - DEFAULT_PY_EXCLUDES: default glob excludes used by uv_py_package
   - to_exec_root_path: prefix an exec-root-relative path with EXEC_ROOT_MARKER
   - EXEC_ROOT_MARKER: marker prefix substituted to the absolute exec root at runtime
 """
@@ -34,10 +37,10 @@ UvBuildEnvInfo = _UvBuildEnvInfo
 UvPyPackageInfo = _UvPyPackageInfo
 UvPyWheelInfo = _UvPyWheelInfo
 to_exec_root_path = _to_exec_root_path
-uv_py_deploy = _uv_py_deploy
 uv_py_entrypoint = _uv_py_entrypoint
 uv_py_export = _uv_py_export
 uv_py_import_wheel = _uv_py_import_wheel
+uv_py_deploy = _uv_py_deploy
 uv_py_lock = _uv_py_lock
 uv_py_package = _uv_py_package
 uv_py_test = _uv_py_test

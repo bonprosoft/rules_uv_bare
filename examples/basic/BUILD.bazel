@@ -2,9 +2,9 @@ load("@rules_uv_bare//uv:defs.bzl", "uv_py_deploy", "uv_py_entrypoint", "uv_py_e
 
 uv_py_workspace(
     name = "ws",
+    # Do not bundle a Python interpreter in the `.bundle` target.
+    bundle_interpreter = False,
     dependency_groups = {"test": ["pytest>=8.0"]},
-    # Do not bundle Python interpreter at `.deploy` target.
-    deploy_bundle_python = False,
     host_python = "cpython-3.12",
     lock = "uv.lock",
     members = [

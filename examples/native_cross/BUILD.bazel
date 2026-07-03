@@ -55,18 +55,18 @@ config_setting(
 
 uv_py_workspace(
     name = "ws",
-    dependency_groups = {"test": ["pytest>=8.0"]},
-    deploy_build_deps = [
+    build_env_deps = [":cc_env"],
+    bundle_build_deps = [
         "setuptools",
         "wheel",
         "uv-build>=0.7.19,<0.8",
     ],
-    deploy_target_platform = select({
+    bundle_target_platform = select({
         ":is_linux_x86_64": "linux-x86_64-gnu",
         ":is_linux_aarch64": "linux-aarch64-gnu",
         ":is_darwin_aarch64": "macos-aarch64-none",
     }),
-    env_providers = [":cc_env"],
+    dependency_groups = {"test": ["pytest>=8.0"]},
     # Force msgpack to build from source for demonstration.
     extra_pyproject_content = """
 tool.uv.no-binary-package = ["msgpack"]
@@ -74,7 +74,7 @@ tool.uv.no-binary-package = ["msgpack"]
     host_python = "cpython-3.12",
     lock = "uv.lock",
     members = ["//app"],
-    target_platforms = {
+    platform_markers = {
         ":linux_x86_64": "platform_machine == 'x86_64' and sys_platform == 'linux'",
         ":linux_aarch64": "platform_machine == 'aarch64' and sys_platform == 'linux'",
         ":darwin_aarch64": "platform_machine == 'arm64' and sys_platform == 'darwin'",
